@@ -1,0 +1,1852 @@
+#' comp_m UI Function
+#'
+#' @description Module for setting the number of simulations.
+#'
+#' @param id,input,output,session Internal parameters for {shiny}.
+#'
+#' @noRd 
+#'
+#' @importFrom shiny NS tagList 
+mod_comp_m_ui <- function(id) {
+  ns <- NS(id)
+  tagList(
+    
+    # Number of simulations: --------------------------------------------
+    
+    shinydashboardPlus::box(
+      title = span("Simulations", class = "ttl-box_solid"),
+      id = ns("mBox_nsims"),
+      status = "warning",
+      width = NULL,
+      solidHeader = TRUE,
+      collapsible = FALSE,
+      
+      column(
+        width = 12, align = "left",
+        
+        fluidRow(
+          p(style = "padding: 0px;"),
+          
+          shinyWidgets::autonumericInput(
+            inputId = ns("nsims"),
+            label = "Number of tags:",
+            currencySymbol = " tag(s)",
+            currencySymbolPlacement = "s",
+            decimalPlaces = 0,
+            minimumValue = 1,
+            maximumValue = 100,
+            value = 1, wheelStep = 1),
+          
+          shinyWidgets::autonumericInput(
+            inputId = ns("nsims_max"),
+            label = "Number of tags (maximum):",
+            currencySymbol = " tag(s)",
+            currencySymbolPlacement = "s",
+            decimalPlaces = 0,
+            minimumValue = 2,
+            maximumValue = 500,
+            value = 2, wheelStep = 2),
+
+          # shinyWidgets::autonumericInput(
+          #   inputId = ns("nsims_iter"),
+          #   label = "Check every _ tags:",
+          #   currencySymbol = " tag(s)",
+          #   currencySymbolPlacement = "s",
+          #   decimalPlaces = 0,
+          #   minimumValue = 2,
+          #   maximumValue = 50,
+          #   value = 2, wheelStep = 2),
+          
+          fluidRow(
+            column(width = 12,
+                   verbatimTextOutput(outputId = ns("txt_m_groups"))
+            )),
+          br(),
+          
+          shinyWidgets::numericInputIcon(
+            inputId = ns("error_threshold"),
+            label = "Error threshold:",
+            min = 1,
+            max = 50,
+            value = 5,
+            step = 1,
+            icon = list(NULL, icon("percent"))),
+          
+          fluidRow(
+            column(width = 12,
+                   div(id = ns("txt_ratio_label"),
+                       p(style = "text-align: left !important;",
+                         HTML("&nbsp;"), "Ratio:") %>%
+                         tagAppendAttributes(class = 'label_split')),
+                   
+                   verbatimTextOutput(outputId = ns("txt_ratio"))
+            ))
+          
+        ) # end of fluidRow
+        
+      ), # end of column
+      
+      footer = column(
+        width = 12, align = "right",
+        style = "padding-left: 0px; padding-right: 0px;",
+        
+        shiny::actionButton(
+          inputId = ns("mButton_repeat"),
+          icon = icon("bolt"),
+          label = "Simulate",
+          class = "btn-sims",
+          width = "125px")
+        
+      ) # end of column (footer)
+    ), # end of box // mBox_nsims
+    
+  ) # end of tagList
+}
+
+#' comp_m Server Functions
+#'
+#' @noRd 
+mod_comp_m_server <- function(id, rv, set_analysis = NULL) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    pal <- load_pal()
+    
+    # MAIN REACTIVE VALUES ------------------------------------------------
+    
+    rv$m <- reactiveValues(proceed = NULL, 
+                           needs_fit = NULL, 
+                           tmpList = NULL)
+    
+    observe({
+      req(input$error_threshold)
+      rv$error_threshold <- input$error_threshold/100
+    })
+    
+    ## Estimating time: ---------------------------------------------------
+    
+    estimating_time <- reactive({
+      
+      out_time <- guess_time(data = rv$simList,
+                             error = rv$error,
+                             parallel = rv$parallel)
+      return(out_time)
+      
+    }) %>% # end of reactive, estimating_time()
+      bindCache(c(rv$tau_p, 
+                  rv$tau_v,
+                  rv$dur, 
+                  rv$dti))
+    
+    # DYNAMIC UI ELEMENTS -------------------------------------------------
+    ## Hide elements at start: --------------------------------------------
+    
+    shinyjs::hide(id = "mBox_nsims")
+    
+    shinyjs::hide(id = "ratio")
+    shinyjs::hide(id = "txt_ratio")
+    shinyjs::hide(id = "txt_ratio_label")
+    
+    shinyjs::hide(id = "nsims")
+    shinyjs::hide(id = "nsims_max")
+    
+    ## Reveal elements based on workflow: ---------------------------------
+    
+    observe({
+      req(rv$which_meta)
+      
+      if ("compare" == rv$which_meta) {   
+        shinyjs::show(id = "ratio")
+        shinyjs::show(id = "txt_ratio_label")
+        shinyjs::show(id = "txt_ratio")
+        
+      }
+      
+      if ("mean" == rv$which_meta) {   
+        shinyjs::hide(id = "ratio")
+        shinyjs::hide(id = "txt_ratio_label")
+        shinyjs::hide(id = "txt_ratio")
+      }
+      
+      if ("none" == rv$which_meta) {
+        shinyjs::hide(id = "nsims")
+        shinyjs::hide(id = "nsims_max")
+      }
+      
+    }) %>% # end of observe,
+      bindEvent(rv$which_meta)
+    
+    observe({
+      req(rv$which_m)
+      shinyjs::show("error_threshold")
+      
+      if (rv$which_m == "set_m") {
+        req(input$nsims)
+        rv$nsims <- as.numeric(input$nsims)
+      } else if (rv$which_m == "get_m") {
+        req(input$nsims_max)
+        rv$nsims <- as.numeric(input$nsims_max)
+      }
+      
+    }) %>% # end of observe,
+      bindEvent(list(rv$active_tab,
+                     input$nsims,
+                     input$nsims_max))
+    
+    observe({
+      req(rv$which_m, rv$which_meta)
+      req(rv$active_tab == 'hr' || rv$active_tab == 'ctsd')
+      
+      if (rv$which_m == "set_m") {
+        shinyjs::show(id = "nsims")
+        shinyjs::hide(id = "nsims_max")
+      } else if (rv$which_m == "get_m") {
+        shinyjs::hide(id = "nsims")
+        shinyjs::show(id = "nsims_max")
+      } else {
+        shinyjs::hide(id = "nsims")
+        shinyjs::hide(id = "nsims_max")
+      }
+      
+      req(length(rv$simList) >= 2)
+      wheel_step <- ifelse("compare" %in% rv$which_meta, 2, 1)
+      
+      if (rv$which_m == "set_m") {
+      shinyWidgets::updateAutonumericInput(
+        session = session,
+        inputId = "nsims",
+        label = "Number of tags (total):",
+        value = length(rv$simList), 
+        options = list(
+          decimalPlaces = 0,
+          minimumValue = 1,
+          maximumValue = 100,
+          wheelStep = wheel_step))
+      }
+      
+      if (rv$which_m == "get_m") {
+      shinyWidgets::updateAutonumericInput(
+        session = session,
+        inputId = "nsims_max",
+        label = "Number of tags (maximum):",
+        value = length(rv$simList),
+        options = list(
+          decimalPlaces = 0,
+          minimumValue = 1,
+          maximumValue = 100,
+          wheelStep = wheel_step))
+      }
+      
+    }) %>% # end of observe,
+      bindEvent(rv$active_tab)
+    
+    observe({
+      req(rv$which_meta, rv$is_analyses)
+      
+      if (rv$is_analyses && rv$which_meta != "none")
+        shinyjs::show(id = "mBox_nsims") else
+          shinyjs::hide(id = "mBox_nsims")
+      
+    }) # end of observe
+    
+    observe({
+      req(rv$active_tab == 'meta')
+      shinyjs::show(id = "mBox_nsims")
+      
+    }) # end of observe
+    
+    ## Render number of simulations: --------------------------------------
+    
+    # output$nsims_total <- renderText({
+    #   req(input$nsims)
+    #   
+    #   m <- 1 + input$nsims
+    #   if (!is.null(rv$simList)) m <- length(rv$simList) + input$nsims
+    #   return(m)
+    #   
+    # }) # end of renderText, "nsims_total"
+    
+    observe({
+      req(rv$which_m)
+      
+      if (rv$which_m == "set_m") 
+        shinyjs::hide(id = "nsims") else
+          shinyjs::show(id = "nsims")
+      
+    }) # end of observe
+    
+    ## Update number of tags: ---------------------------------------------
+    
+    observe({
+      req(rv$simList)
+      req(rv$active_tab == 'hr' || rv$active_tab == 'ctsd')
+      req(length(rv$simList) == 1)
+      
+      wheel_step <- ifelse("compare" %in% rv$which_meta, 2, 1)
+      
+      shinyWidgets::updateAutonumericInput(
+        session = session,
+        inputId = "nsims",
+        label = "Number of tags (total):",
+        value = 1,
+        options = list(
+          decimalPlaces = 0,
+          minimumValue = 1,
+          maximumValue = 100,
+          wheelStep = wheel_step))
+
+    }) %>% # end of observe,
+      bindEvent(rv$simList)
+    
+    ## Rendering effect size (based on groups): ---------------------------
+    
+    output$txt_ratio <- renderText({
+      req("compare" %in% rv$which_meta)
+      req(rv$metaList_groups[[1]],
+          rv$set_analysis)
+      req(rv$set_analysis == set_analysis)
+      
+      meta <- rv$metaList_groups[[1]][[rv$set_analysis]]
+      req(meta)
+      
+      ratio <- round(.get_ratios(meta)$est, 1)
+      req(ratio)
+      
+      out_txt <- NULL
+      if (rv$set_analysis == "hr") {
+        var <- "home range area"
+        txt_diff <- c("smaller", "larger")
+      }
+      
+      if (set_analysis == "ctsd") {
+        var <- "speed"
+        txt_diff <- c("slower", "faster")
+      }
+      
+      if (ratio == 1) {
+        out_txt <- paste0(
+          "Group A's ", var, " should be equal to Group B's.")
+      } else if (ratio < 1) {
+        out_txt <- paste0(
+          "Group A's ", var, " should be ",
+          round(abs(100 - ratio * 100), 1),
+          "% ", txt_diff[[1]], " than Group B's.")
+      } else if (ratio > 1) { 
+        out_txt <- paste0(
+        "Group A's ", var, " area should be ",
+        round(abs(100 - ratio * 100), 1),
+        "% ", txt_diff[[2]], " than Group B's.")
+      }
+      
+      return(out_txt)
+      
+    }) %>% # end of renderText, "txt_ratio",
+      bindEvent(rv$set_analysis)
+    
+    ## Rendering number of tags per group: --------------------------------
+    
+    output$txt_m_groups <- renderText({
+      req(input$nsims, "compare" %in% rv$which_meta)
+      req(input$nsims > 1)
+      
+      if (input$nsims == 2) return("1 tag per group")
+      else return(paste(input$nsims / 2, "tags per group"))
+      
+    }) %>% # end of renderText, "txt_m_groups",
+      bindEvent(input$nsims)
+    
+    # SIMULATIONS ---------------------------------------------------------
+    ## Run multiple simulations (set number of tags): ---------------------
+    
+    observe({
+      req(rv$which_meta,
+          rv$which_m == "set_m")
+      req(rv$datList,
+          rv$dur, rv$dti,
+          rv$dev$is_valid,
+          rv$simList)
+      
+      if (rv$data_type != "simulated") req(rv$fitList)
+      else req(rv$modList)
+      
+      if ("compare" %in% rv$which_meta) req((rv$nsims - 2) > 0) 
+      else req((rv$nsims - 1) > 0)
+      
+      rv$m$needs_fit <- FALSE
+      subpop <- rv$grouped
+      
+      start <- Sys.time()
+      tmpList <- list()
+      
+      num_sims <- input$nsims - length(rv$simList)
+      if (rv$grouped) num_sims <- num_sims / 2
+      
+      if (length(num_sims) == 0 || num_sims == 0) {
+        shinybusy::remove_modal_spinner()
+        
+        # If more simulations are requested for both questions
+        # (case when simList is done, but ctsdList is not):
+        if (!is.null(rv$ctsdList) && !is.null(rv$akdeList))
+          if (length(rv$simList) == length(rv$akdeList) &&
+              length(rv$simList) != length(rv$ctsdList) &&
+              rv$active_tab == "ctsd") {
+            rv$sd_completed <- FALSE
+            rv$m$proceed <- TRUE
+          }
+      }
+      
+      req(length(num_sims) > 0)
+      req(num_sims > 0)
+      if (rv$which_meta == "compare") req(rv$groups)
+      if (rv$is_emulate) req(rv$meanfitList)
+        
+      rv$meta_tbl <- NULL
+      
+      shinybusy::show_modal_spinner(
+        spin = "fading-circle",
+        color = "var(--sea)",
+        text = tagList(span(
+          style = "font-size: 18px;",
+          span("Simulating multiple", style = "color: #797979;"),
+          wrap_none(span("datasets", class = "cl-sea"),
+                    span("...", style = "color: #797979;")))
+        ))
+      
+      shinyFeedback::showToast(
+        type = "info",
+        message = paste0("Simulating ", input$n_sims, "datasets..."),
+        .options = list(
+          progressBar = FALSE,
+          closeButton = TRUE,
+          preventDuplicates = TRUE,
+          positionClass = "toast-bottom-right")
+      )
+      
+      msg_log(
+        style = "warning",
+        message = paste0("Simulations ",
+                         msg_warning("in progress"), "..."))
+      
+      tmpnames_new <- list()
+      for (i in seq_len(num_sims)) {
+        
+        rv$seed0 <- generate_seed(rv$seedList)
+        simList <- simulating_data(rv)
+        if (!rv$grouped) {
+          names(simList) <- c(rv$seed0)
+        } else {
+          rv$groups[[2]][["A"]] <- c(as.character(rv$groups[[2]]$A),
+                                     as.character(rv$seed0))
+          rv$groups[[2]][["B"]] <- c(as.character(rv$groups[[2]]$B),
+                                     as.character(rv$seed0 + 1))
+          names(simList) <- c(rv$seed0, rv$seed0 + 1)
+        }
+        
+        # If there is tag failure:
+        
+        failure_occurred <- FALSE
+        if (!is.null(rv$fail_prob)) {
+          if (req(rv$fail_prob) > 0) {
+            
+            fail_prob <- rv$fail_prob
+            simList <- lapply(simList, function(x) {
+              
+              failure_occurred <- sample(
+                c(FALSE, TRUE), size = 1, 
+                prob = c(1 - fail_prob, fail_prob))
+              
+              to_keep_vec <- rep(1, nrow(x))
+              if (failure_occurred) {
+                
+                to_keep_vec <- c(rep(1, 10), cumprod(
+                  1 - stats::rbinom(nrow(x) - 10, 1, prob = 0.01)))
+                if (!any(to_keep_vec == 0)) failure_occurred <- FALSE
+                
+                rv$dev_failed <- c(rv$dev_failed, failure_occurred)
+                return(x[to_keep_vec == 1, ])
+                
+              } else return(x)
+              
+            }) # end of lapply
+            
+          } # end of if (rv$fail_prob > 0)
+        } else rv$dev_failed <- c(rv$dev_failed, failure_occurred)
+        
+        # If there is data loss:
+        
+        if (!is.null(rv$lost))
+          if (rv$lost$perc > 0) {
+            
+            simList <- lapply(simList, function(x) {
+              to_keep <- round(nrow(x) * (1 - rv$lost$perc), 0)
+              to_keep_vec <- sort(
+                sample(seq_len(nrow(x)), to_keep, replace = FALSE))
+              x[to_keep_vec, ] })
+            
+          } # end of data loss
+        
+        # If there are errors associated with each location:
+        
+        if (!is.null(rv$error))
+          if (req(rv$error) > 0) {
+            
+            simList <- lapply(simList, function(x) {
+              
+              x$error_x <- x$error_y <- stats::rnorm(
+                nrow(x), mean = 0, sd = rv$error)
+              
+              x$HDOP <- sqrt(2) * sqrt(x$error_x^2 + x$error_y^2) /
+                sqrt(-2 * log(0.05))
+              
+              x$original_x <- x$x
+              x$original_y <- x$y
+              x[c("x", "y")] <- x[c("x", "y")] + c(x$error_x,
+                                                   x$error_y)
+              
+              ctmm::uere(x) <- 1
+              
+              return(x) })
+            
+          } # end of location error
+        
+        # Add to lists:
+        
+        if (rv$grouped) {
+          tmpList <- c(tmpList, simList)
+          tmpnames_new[[i]] <- names(simList)
+          tmpnames <- names(rv$simList)
+          
+          rv$simList <- c(rv$simList, simList)
+          rv$seedList <- c(rv$seedList, rv$seed0, rv$seed0 + 1)
+          names(rv$simList) <- c(tmpnames, rv$seed0, rv$seed0 + 1)
+        } else {
+          tmpList[[i]] <- simList[[1]] 
+          tmpnames_new[[i]] <- names(simList)
+          tmpnames <- names(rv$simList)
+          
+          rv$simList[[length(rv$simList) + 1]] <- simList[[1]]
+          rv$seedList[[length(rv$seedList) + 1]] <- rv$seed0
+          names(rv$simList) <- c(tmpnames, rv$seed0)
+        }
+        
+      } # end of for loop
+      
+      rv$tmpList <- tmpList
+      names(rv$tmpList) <- do.call(c, tmpnames_new)
+      
+      rv$dev$n <- lapply(seq_along(rv$simList), function(x)
+        nrow(rv$simList[[x]]))
+      
+      rv$m$needs_fit <- TRUE
+      rv$is_analyses <- FALSE
+      rv$hr_completed <- FALSE
+      rv$sd_completed <- FALSE
+      
+      msg_log(
+        style = "success",
+        message = paste0("Simulations ",
+                         msg_success("completed"), "."),
+        run_time = difftime(Sys.time(), start, units = "sec"))
+      
+      shinyFeedback::showToast(
+        type = "success",
+        message = "Simulations completed!",
+        .options = list(
+          timeOut = 3000,
+          extendedTimeOut = 3500,
+          progressBar = FALSE,
+          closeButton = TRUE,
+          preventDuplicates = TRUE,
+          positionClass = "toast-bottom-right"
+        )
+      )
+      
+      shinybusy::remove_modal_spinner()
+      
+    }, label = "o-m_sims") %>% # end of observer
+      bindEvent(input$mButton_repeat)
+    
+    observe({
+      req(rv$which_m == "set_m",
+          rv$datList,
+          rv$simList,
+          rv$simfitList,
+          rv$dur, 
+          rv$dti,
+          rv$dev$is_valid,
+          rv$m$needs_fit)
+      req(rv$set_analysis == set_analysis)
+      
+      rv$m$proceed <- NULL
+      
+      loading_modal("Calculating run time")
+      expt <- estimating_time()
+      
+      x <- NULL
+      confirm_time <- NULL
+      if ((as.numeric(expt$max) %#% expt$unit) > 900) {
+        
+        shinyalert::shinyalert(
+          className = "modal_warning",
+          title = "Do you wish to proceed?",
+          callbackR = function(x) {
+            confirm_time <- x
+          },
+          text = tagList(span(
+            "Expected run time for the next phase", br(),
+            "is approximately",
+            span(expt$min, "\u2013", expt$max,
+                 class = "cl-dgr"),
+            wrap_none(span(expt$unit,
+                           class = "cl-dgr"), ".")
+          )),
+          type = "warning",
+          showCancelButton = TRUE,
+          cancelButtonText = "Stop",
+          confirmButtonCol = pal$mdn,
+          confirmButtonText = "Proceed",
+          html = TRUE
+        )
+      } else { confirm_time <- TRUE }
+      
+      shinybusy::remove_modal_spinner()
+      
+      req(confirm_time)
+      
+      start <- Sys.time()
+      num_sims <- length(rv$tmpList)
+      loading_modal("Selecting movement model", type = "fit",
+                    exp_time = rv$expt,
+                    n = num_sims,
+                    parallel = rv$parallel)
+      
+      simList <- rv$tmpList
+      
+      if (is.null(rv$error)) {
+        guessList <- lapply(seq_along(simList), function (x)
+          ctmm::ctmm.guess(simList[[x]], interactive = FALSE))
+      } else {
+        guessList <- lapply(seq_along(simList), function (x)
+          ctmm::ctmm.guess(simList[[x]],
+                           CTMM = ctmm::ctmm(error = TRUE),
+                           interactive = FALSE))
+      }
+        
+      if (rv$parallel) {
+        
+        msg_log(
+          style = "warning",
+          message = paste0("Model selection for ", num_sims,
+                           " simulation(s) (out of ", rv$nsims, ") ",
+                           msg_warning("in progress"), ","),
+          detail = "This may take a while...")
+        
+        simfitList <- fitting_model(simList,
+                                    set_target = rv$set_analysis,
+                                    .dur = rv$dur,
+                                    .dti = rv$dti,
+                                    .tau_p = rv$tau_p,
+                                    .tau_v = rv$tau_v,
+                                    .error_m = rv$error,
+                                    .check_sampling = TRUE,
+                                    .rerun = TRUE)
+        
+        rv$dev$N1 <- c(rv$dev$N1, extract_dof(simfitList, "area"))
+        rv$dev$N2 <- c(rv$dev$N2, extract_dof(simfitList, "speed"))
+        
+        m <- length(rv$simfitList)
+        rv$simfitList <- c(rv$simfitList, simfitList)
+        names(rv$simfitList) <- names(rv$simList)
+        
+        lapply(seq_along(simList), function(x) {
+          nm <- names(rv$simList)[[(rv$nsims - num_sims) + x]]
+          
+          group <- 1
+          if (rv$grouped) {
+            group <- ifelse(nm %in% rv$groups[[2]]$A, "A", "B")
+          }
+          
+          if (rv$is_emulate) {
+            tau_p <- extract_pars(
+              emulate_seeded(rv$meanfitList[[group]], 
+                             rv$seedList[[(rv$nsims - num_sims) + x]]),
+              "position")[[1]]
+            tau_v <- extract_pars(
+              emulate_seeded(rv$meanfitList[[group]], 
+                             rv$seedList[[(rv$nsims - num_sims) + x]]),
+              "velocity")[[1]]
+            sigma <- extract_pars(
+              emulate_seeded(rv$meanfitList[[group]], 
+                             rv$seedList[[(rv$nsims - num_sims) + x]]),
+              "sigma")[[1]]
+            
+          } else {
+            tau_p <- rv$tau_p[[group]]
+            tau_v <- rv$tau_v[[group]]
+            sigma <- rv$sigma[[group]]
+          }
+          
+          rv$dev$tbl <<- rbind(
+            rv$dev$tbl,
+            .build_tbl(
+              device = rv$device_type,
+              group = if (rv$grouped) group else NA,
+              data = simList[[x]],
+              # seed = rv$seedList[[(rv$nsims - num_sims) + x]],
+              seed = names(simList)[[x]],
+              obj = simfitList[[x]],
+              tau_p = tau_p,
+              tau_v = tau_v,
+              sigma = sigma))
+        })
+        
+      } else {
+        
+        for (i in seq_along(simList)) {
+          msg_log(
+            style = "warning",
+            message = paste0("Model fit for sim no. ", num_sims + 1,
+                             " ", msg_warning("in progress"), ","),
+            detail = "Please wait for model selection to finish:")
+          
+          start_i <- Sys.time()
+          fit <- par.ctmm.select(simList[i], guessList[i])
+          time_i <- difftime(Sys.time(), start_i, units = "secs")
+          
+          rv$simfitList[[length(rv$simfitList) + 1]] <- fit
+          rv$dev$N1 <- c(rv$dev$N1, extract_dof(fit, "area"))
+          rv$dev$N2 <- c(rv$dev$N2, extract_dof(fit, "speed"))
+          
+          nm <- names(rv$simList)[[(rv$nsims - num_sims) + i]]
+          
+          group <- 1
+          if (rv$grouped) {
+            group <- ifelse(nm %in% rv$groups[[2]]$A, "A", "B")
+          }
+          
+          if (rv$is_emulate) {
+            tau_p <- extract_pars(
+              emulate_seeded(rv$meanfitList[[group]], 
+                             rv$seedList[[(rv$nsims - num_sims) + x]]),
+              "position")[[1]]
+            tau_v <- extract_pars(
+              emulate_seeded(rv$meanfitList[[group]], 
+                             rv$seedList[[(rv$nsims - num_sims) + x]]),
+              "velocity")[[1]]
+            sigma <- extract_pars(
+              emulate_seeded(rv$meanfitList[[group]], 
+                             rv$seedList[[(rv$nsims - num_sims) + x]]),
+              "sigma")[[1]]
+            
+          } else {
+            tau_p <- rv$tau_p[[group]]
+            tau_v <- rv$tau_v[[group]]
+            sigma <- rv$sigma[[group]]
+          }
+          
+          rv$dev$tbl <<- rbind(
+            rv$dev$tbl,
+            .build_tbl(
+              device = rv$device_type,
+              group = if (rv$grouped) group else NA,
+              data = simList[[i]], 
+              seed = rv$seedList[[(rv$nsims - num_sims) + i]],
+              obj = fit,
+              tau_p = tau_p,
+              tau_v = tau_v,
+              sigma = sigma))
+          
+          msg_log(
+            style = "warning",
+            message = paste0("Model fit for sim no. ", i + 1, " ",
+                             msg_success("completed"), "..."),
+            run_time = time_i)
+        }
+      }
+      
+      rv$m$needs_fit <- FALSE
+      fit_time <- difftime(Sys.time(), start, units = "secs")
+      msg_log(
+        style = 'success',
+        message = paste0("Model selection for ", num_sims,
+                         " simulation(s) ",
+                         msg_success("completed"), "."),
+        run_time = fit_time)
+      
+      rv$m$proceed <- TRUE
+      
+      shinyFeedback::showToast(
+        type = "success",
+        message = "Simulations completed!",
+        .options = list(
+          timeOut = 3000,
+          extendedTimeOut = 3500,
+          progressBar = FALSE,
+          closeButton = TRUE,
+          preventDuplicates = TRUE,
+          positionClass = "toast-bottom-right"
+        )
+      )
+      
+      shinybusy::remove_modal_spinner()
+      
+    }, label = "o-m_sims_fit") %>% # end of observe,
+      bindEvent(rv$m$needs_fit)
+    
+    ## Run multiple simulations (minimum number of tags): -----------------
+    
+    # observe({
+    #   req(rv$which_m == "get_m",
+    #       rv$datList,
+    #       rv$simList,
+    #       rv$simfitList,
+    #       rv$dur,
+    #       rv$dti,
+    #       rv$dev$is_valid,
+    #       rv$m$needs_fit)
+    #   req(rv$set_analysis == set_analysis)
+    #   
+    #   rv$m$proceed_get_m <- NULL
+    #   
+    #   loading_modal("Calculating run time")
+    #   expt <- estimating_time()
+    #   
+    #   confirm_time <- NULL
+    #   if ((as.numeric(expt$max) %#% expt$unit) > 900) {
+    # 
+    #     shinyalert::shinyalert(
+    #       className = "modal_warning",
+    #       title = "Do you wish to proceed?",
+    #       callbackR = function(x) {
+    #         confirm_time <- x
+    #       },
+    #       text = tagList(span(
+    #         "Expected run time for the next phase", br(),
+    #         "is approximately",
+    #         span(expt$min, "\u2013", expt$max,
+    #              class = "cl-dgr"),
+    #         wrap_none(span(expt$unit,
+    #                        class = "cl-dgr"), ".")
+    #       )),
+    #       type = "warning",
+    #       showCancelButton = TRUE,
+    #       cancelButtonText = "Stop",
+    #       confirmButtonCol = pal$mdn,
+    #       confirmButtonText = "Proceed",
+    #       html = TRUE
+    #     )
+    #   } else { confirm_time <- TRUE }
+    # 
+    #   shinybusy::remove_modal_spinner()
+    # 
+    # }, label = "o-m_sims_fit") %>% # end of observe,
+    #   bindEvent(rv$m$proceed_get_m)
+    
+    observe({
+      req(rv$which_question,
+          rv$which_meta != "none",
+          rv$which_m == "get_m")
+      req(rv$datList,
+          rv$dur, rv$dti,
+          rv$dev$is_valid,
+          rv$simList,
+          input$error_threshold)
+      
+      if (rv$data_type != "simulated") 
+        req(rv$fitList) else req(rv$modList)
+      
+      if ("compare" %in% rv$which_meta) 
+        req((rv$nsims - 2) > 0) else req((rv$nsims - 1) > 0)
+      
+      num_sims <- length(rv$simList)
+      seq_for <- (num_sims + 1):rv$nsims
+      rv$m$needs_fit <- FALSE
+      
+      shinybusy::show_modal_spinner(
+        spin = "fading-circle",
+        color = "var(--sea)",
+        text = tagList(span(
+          style = "font-size: 18px;",
+          span("Simulating multiple", style = "color: #797979;"),
+          wrap_none(span("datasets", class = "cl-sea"),
+                    span("...", style = "color: #797979;")))
+        ))
+      
+      shinyFeedback::showToast(
+        type = "info",
+        message = paste0("Simulating multiple datasets..."),
+        .options = list(
+          progressBar = FALSE,
+          closeButton = TRUE,
+          preventDuplicates = TRUE,
+          positionClass = "toast-bottom-right")
+      )
+      
+      if (length(rv$simList) == 1) {
+        m_max <- input$nsims_max
+      } else m_max <- input$nsims_max - length(rv$simList)
+      
+      if (m_max == 0) {
+        msg_log(
+          style = "error",
+          message = paste0(
+            "Simulations are already  ", msg_danger("available"), ","),
+          detail = "Restart from sampling design tab.")
+        
+        shinybusy::remove_modal_spinner()  
+      }
+      req(m_max > 0)
+      
+      msg_log(
+        style = "warning",
+        message = paste0("Simulations ",
+                         msg_warning("in progress"), "..."))
+      
+      m <- 2 # input$nsims_iter
+      m_sets <- 1
+      if (m < m_max) m_sets <- seq(m, m_max, by = m)
+      
+      # Initialize values:
+      
+      err <- 1
+      threshold <- input$error_threshold/100 # default is currently 5%
+      hex <- rep("grey50", 5)
+      trace <- TRUE
+      
+      subpop <- rv$grouped
+      
+      start_time <- Sys.time()
+      dt_meta <- data.frame(
+        "type" = character(0),
+        "m" = numeric(0),
+        "sample" = numeric(0),
+        "truth" = numeric(0),
+        "est" = numeric(0),
+        "lci" = numeric(0),
+        "uci" = numeric(0),
+        "error" = numeric(0),
+        "error_lci" = numeric(0),
+        "error_uci" = numeric(0),
+        "ratio_truth" = numeric(0),
+        "ratio_est" = numeric(0),
+        "ratio_lci" = numeric(0),
+        "ratio_uci" = numeric(0),
+        "overlaps" = logical(0),
+        "is_grouped" = logical(0),
+        "group" = character(0),
+        "subpop_detected" = character(0))
+      
+      i <- 0
+      broke <- FALSE
+      while (i < length(m_sets)) {
+        i <- i + 1
+        start_time_i <- Sys.time()
+        
+        if (trace) shinyFeedback::showToast(
+          type = "info",
+          message = paste0("Set ", i, 
+                           " out of ", length(m_sets), "..."),
+          .options = list(
+            progressBar = FALSE,
+            closeButton = TRUE,
+            preventDuplicates = TRUE,
+            positionClass = "toast-bottom-right"))
+        
+        if (trace) msg_log(
+          style = "warning",
+          message = paste0("Simulation set no. ", i,
+                           " out of ", length(m_sets), " ",
+                           msg_warning("in progress"), ","),
+          detail = paste("or until error threshold is reached."))
+        
+        # Simulate data:
+        
+        if (length(rv$simList) == 1) {
+          
+          # Running one extra simulation at the beginning:
+          rv$seed0 <- generate_seed(rv$seedList)
+          simList <- simulating_data(rv)
+          
+          names(simList) <- c(rv$seed0)
+          seedList <- list(rv$seed0)
+          rv$seedList <- c(rv$seedList, rv$seed0)
+          
+        } else {
+          if (subpop) {
+            
+            rv$seed0 <- generate_seed(rv$seedList)
+            simList <- simulating_data(rv)
+            
+            rv$groups[[2]][["A"]] <- c(as.character(rv$groups[[2]]$A),
+                                       as.character(rv$seed0))
+            rv$groups[[2]][["B"]] <- c(as.character(rv$groups[[2]]$B),
+                                       as.character(rv$seed0 + 1))
+            
+            names(simList) <- c(rv$seed0, rv$seed0 + 1)
+            seedList <- list(rv$seed0, rv$seed0 + 1)
+            rv$seedList <- c(rv$seedList, rv$seed0, rv$seed0 + 1)
+            
+          } else {
+            
+            simList <- lapply(seq_len(m), function(x) {
+              rv$seed0 <- generate_seed(rv$seedList)
+              out <- simulating_data(rv)[[1]]
+              rv$seedList <- c(rv$seedList, rv$seed0)
+              return(out) 
+            })
+            seedList <- utils::tail(rv$seedList, m)
+            names(simList) <- seedList
+          }
+          
+        }
+        
+        new_tmpnames <- names(simList)
+        
+        # If there is tag failure:
+        
+        failure_occurred <- FALSE
+        if (!is.null(rv$fail_prob)) {
+          if (req(rv$fail_prob) > 0) {
+            
+            fail_prob <- rv$fail_prob
+            simList <- lapply(simList, function(x) {
+              
+              failure_occurred <- sample(
+                c(FALSE, TRUE), size = 1, 
+                prob = c(1 - fail_prob, fail_prob))
+              
+              to_keep_vec <- rep(1, nrow(x))
+              if (failure_occurred) {
+                
+                to_keep_vec <- c(rep(1, 10), cumprod(
+                  1 - stats::rbinom(nrow(x) - 10, 1, prob = 0.01)))
+                if (!any(to_keep_vec == 0)) failure_occurred <- FALSE
+                
+                rv$dev_failed <- c(rv$dev_failed, failure_occurred)
+                return(x[to_keep_vec == 1, ])
+                
+              } else return(x)
+              
+            }) # end of lapply
+            
+          } # end of if (rv$fail_prob > 0)
+        } else rv$dev_failed <- c(rv$dev_failed, failure_occurred)
+        
+        # If there is data loss:
+        
+        if (!is.null(rv$lost))
+          if (rv$lost$perc > 0) {
+            
+            simList <- lapply(simList, function(x) {
+              to_keep <- round(nrow(x) * (1 - rv$lost$perc), 0)
+              to_keep_vec <- sort(
+                sample(seq_len(nrow(x)), to_keep, replace = FALSE))
+              x[to_keep_vec, ] })
+            
+          } # end of input$device_fixsuccess
+        
+        # If there are errors associated with each location:
+        
+        if (!is.null(rv$error))
+          if (req(rv$error) > 0) {
+            
+            simList <- lapply(simList, function(x) {
+              
+              x$error_x <- x$error_y <- stats::rnorm(
+                nrow(x), mean = 0, sd = rv$error)
+              
+              x$HDOP <- sqrt(2) * sqrt(x$error_x^2 + x$error_y^2) /
+                sqrt(-2 * log(0.05))
+              
+              x$original_x <- x$x
+              x$original_y <- x$y
+              x[c("x", "y")] <- x[c("x", "y")] + c(x$error_x,
+                                                   x$error_y)
+              ctmm::uere(x) <- 1
+              
+              return(x) })
+            
+          } # end of input$device_error
+        
+        tmpnames <- names(rv$simList)
+        rv$simList <- c(rv$simList, simList)
+        
+        current_dur <- rv$dur$value %#% rv$dur$unit
+        optimal_dur <- (rv$tau_p[[1]]$value[2] %#%
+                          rv$tau_p[[1]]$unit[2]) * 10
+        
+        current_dti <- rv$dti$value %#% rv$dti$unit
+        optimal_dti <- (rv$tau_v[[1]]$value[2] %#%
+                          rv$tau_v[[1]]$unit[2]) / 3
+        
+        # optimal_dur <= current_dur && current_dti <= optimal_dti
+        if (rv$set_analysis == "hr") {
+          to_check <- optimal_dur <= current_dur
+        }
+        if (rv$set_analysis == "ctsd") {
+          to_check <- current_dti <= optimal_dti
+        }
+        
+        # Fit movement models:
+        
+        fitList <- lapply(seq_along(simList), function(x) {
+          
+          guess <- ctmm::ctmm.guess(simList[[x]], interactive = F)
+          if (to_check)
+            out <- ctmm::ctmm.fit(simList[[x]], guess, trace = F)
+          else out <- ctmm::ctmm.select(simList[[x]], guess, trace = F)
+          rv$simfitList <- c(rv$simfitList, list(out))
+          return(out)
+          
+        })
+        names(rv$simfitList) <- names(rv$simList)
+        req(length(rv$simList) == length(rv$simfitList))
+        
+        # Estimate home range area:
+        
+        if ("Home range" %in% rv$which_question) {
+          
+          akdeList <- lapply(seq_along(simList), function(x) {
+            out <- tryCatch(
+              ctmm::akde(simList[[x]], fitList[[x]]),
+              warning = function(w) NULL,
+              error = function(e) NULL)
+            rv$akdeList <- c(rv$akdeList, list(out))
+            return(out)
+          })
+          names(rv$akdeList) <- names(rv$simList)
+          
+        } # end of if (hr)
+        
+        # Estimate speed & distance traveled:
+        
+        if ("Speed & distance" %in% rv$which_question) {
+          
+          ctsdList <- par.speed(
+            simList,
+            fitList,
+            seed = seedList,
+            parallel = rv$parallel)
+          rv$ctsdList <- c(rv$ctsdList, ctsdList)
+          names(rv$ctsdList) <- names(rv$simList)
+          
+          speedDatList <- lapply(seq_along(simList), function(x) {
+            ctmm::speeds(simList[[x]], fitList[[x]], units = FALSE)
+          })
+          rv$speedDatList <- c(rv$speedDatList, speedDatList)
+          names(rv$speedDatList) <- names(rv$simList)
+          
+          pathList <- estimate_trajectory(
+            data = simList,
+            fit = fitList,
+            groups = if (subpop) rv$groups[[2]] else NULL,
+            dur = rv$dur,
+            tau_v = rv$tau_v,
+            seed = seedList)
+          rv$pathList <<- c(rv$pathList, pathList)
+          names(rv$pathList) <- names(rv$simList)
+          
+        } # end of if (ctsd)
+        
+        # Run meta-analyses:
+        
+        true_ratio <- c()
+        true_estimate <- c()
+        
+        datList <- truthList <- NULL
+        
+        lists <- .build_meta_objects(rv, 
+                                     set_target = rv$set_target,
+                                     subpop = subpop,
+                                     trace = FALSE)
+        list2env(lists, envir = environment())
+        
+        out_meta <- list()
+        last_values <- list()
+        for (target in rv$set_target) {
+          
+          if (target == "hr") {
+            true_estimate[[target]] <- truthList[["hr"]][["All"]]$area
+            if (subpop) {
+              true_estimate[[
+                paste0(target, "_A")]] <- truthList[["hr"]][["A"]]$area
+              true_estimate[[
+                paste0(target, "_B")]] <- truthList[["hr"]][["B"]]$area
+              true_ratio[[target]] <- truthList[["hr"]][["A"]]$area/
+                truthList[["hr"]][["B"]]$area
+            }
+          }
+          
+          if (target == "ctsd") {
+            true_estimate[["ctsd"]] <- truthList[["ctsd"]][["All"]]
+            if (subpop) {
+              true_estimate[[
+                paste0(target, "_A")]] <- truthList[["ctsd"]][["A"]]
+              true_estimate[[
+                paste0(target, "_B")]] <- truthList[["ctsd"]][["B"]]
+              true_ratio[[target]] <- truthList[["ctsd"]][["A"]]/
+                truthList[["ctsd"]][["B"]]
+            }
+          }
+          
+          input <- list()
+          input[["All"]] <- datList[["All"]][[target]]
+          input_groups <- list(input)
+          
+          if (subpop) {
+            input_groups <- datList[["groups"]][[target]]
+            nms_group_A <- names(input[["All"]][rv$groups[[2]][["A"]]])
+            nms_group_B <- names(input[["All"]][rv$groups[[2]][["B"]]])
+            input[["groups"]] <- list("A" = input_groups[["A"]],
+                                      "B" = input_groups[["B"]])
+          }
+          
+          if (target == "hr") variable <- "area"
+          if (target == "ctsd") variable <- "speed"
+          
+          out_meta[[target]] <- setNames(lapply(input, function(x) {
+            return(.capture_meta(x,
+                                 variable = variable,
+                                 sort = TRUE,
+                                 units = FALSE,
+                                 verbose = TRUE,
+                                 plot = FALSE) %>%
+                     suppressMessages())
+          }), names(input))
+          
+          truth <- list()
+          out_est <- list()
+          out_err <- list()
+          subpop_detected <- list()
+          
+          nm_groups <- if (subpop) c("A", "B") else c("All")
+          n_groups <- length(nm_groups)
+          
+          if (is.null(out_meta[[target]][["All"]])) {
+            
+            dt_meta <- rbind(
+              dt_meta,
+              data.frame(
+                type = target,
+                m = m,
+                sample = sample,
+                truth = NA,
+                est = NA,
+                lci = NA,
+                uci = NA,
+                error = NA,
+                error_lci = NA,
+                error_uci = NA,
+                ratio_truth = NA,
+                ratio_est = NA,
+                ratio_lci = NA,
+                ratio_uci = NA,
+                overlaps = NA,
+                is_grouped = subpop,
+                group = "All",
+                subpop_detected = NA))
+            
+            err <- rv$err_prev[length(rv$err_prev)]
+            
+          } else {
+            
+            truth[["All"]] <- true_estimate[[target]]
+            
+            out_est[["All"]] <- .get_estimates(
+              out_meta[[target]][["All"]]$meta)
+            out_err[["All"]] <- sapply(out_est[["All"]], .get_errors,
+                                       truth = truth[["All"]])
+            
+            truth_ratio <- NA
+            out_ratio <- c("lci" = NA, "est" = NA, "uci" = NA)
+            subpop_detected[["All"]] <- out_meta[[target]][["All"]]$
+              logs$subpop_detected
+            
+            dt_meta <- rbind(
+              dt_meta,
+              data.frame(
+                type = target,
+                m = m,
+                sample = 1,
+                truth = truth[["All"]],
+                est = out_est[["All"]][["est"]],
+                lci = out_est[["All"]][["lci"]],
+                uci = out_est[["All"]][["uci"]],
+                error = out_err[["All"]][["est"]],
+                error_lci = out_err[["All"]][["lci"]],
+                error_uci = out_err[["All"]][["uci"]],
+                ratio_truth = truth_ratio,
+                ratio_est = out_ratio[["est"]],
+                ratio_lci = out_ratio[["lci"]],
+                ratio_uci = out_ratio[["uci"]],
+                overlaps = NA,
+                is_grouped = subpop,
+                group = "All",
+                subpop_detected = as.character(
+                  subpop_detected[["All"]])))
+            
+            hex <- c(hex, ifelse(
+              subpop_detected[["All"]], pal$dgr, pal$sea))
+            err <- out_err[["All"]][["est"]]
+            
+          } # end of if (is.null(out_meta[["All"]]))
+          
+          # (Not currently using ratio error for threshold)
+          # if (subpop) {
+          #   
+          #   if (is.null(out_meta[["groups"]])) {
+          #     for (group in seq_len(n_groups)) {
+          #       
+          #       dt_meta <- rbind(
+          #         dt_meta,
+          #         data.frame(
+          #           type = target,
+          #           m = m,
+          #           sample = sample,
+          #           truth = NA,
+          #           est = NA,
+          #           lci = NA,
+          #           uci = NA,
+          #           error = NA,
+          #           error_lci = NA,
+          #           error_uci = NA,
+          #           ratio_truth = NA,
+          #           ratio_est = NA,
+          #           ratio_lci = NA,
+          #           ratio_uci = NA,
+          #           overlaps = NA,
+          #           is_grouped = subpop,
+          #           group = nm_groups[group],
+          #           subpop_detected = NA))
+          #       
+          #     } # end of [group] loop
+          #     
+          #   } else {
+          #     
+          #     truth_ratio <- true_ratio[[target]]
+          #     ratios <- .get_ratios(out_meta[["groups"]])
+          #     
+          #     out_ratio <- c(
+          #       "lci" = .get_ratios(out_meta[["groups"]])$lci,
+          #       "est" = .get_ratios(out_meta[["groups"]])$est,
+          #       "uci" = .get_ratios(out_meta[["groups"]])$uci)
+          #     
+          #     # out_ratio_err <- c(
+          #     #   "lci" = (ratio_lci - truth_ratio) / truth_ratio,
+          #     #   "est" = (ratio_est - truth_ratio) / truth_ratio,
+          #     #   "uci" = (ratio_uci - truth_ratio) / truth_ratio)
+          #     
+          #     truth[["A"]] <- true_estimate[[paste0(target, "_A")]]
+          #     truth[["B"]] <- true_estimate[[paste0(target, "_B")]]
+          #     
+          #     out_est[["A"]] <- .get_estimates(out_meta[["groups"]]$meta$A)
+          #     out_err[["A"]] <- sapply(out_est[["A"]], .get_errors,
+          #                              truth = truth[["A"]])
+          #     
+          #     out_est[["B"]] <- .get_estimates(out_meta[["groups"]]$meta$B)
+          #     out_err[["B"]] <- sapply(out_est[["B"]], .get_errors,
+          #                              truth = truth[["B"]])
+          #     
+          #     subpop_detected[["A"]] <- subpop_detected[["B"]] <- 
+          #       out_meta[["groups"]]$logs$subpop_detected
+          #     
+          #     for (group in seq_len(n_groups)) {
+          #       
+          #       dt_meta <- rbind(
+          #         dt_meta,
+          #         data.frame(
+          #           type = target,
+          #           m = m,
+          #           sample = sample,
+          #           truth = truth[[nm_groups[group]]],
+          #           est = out_est[[nm_groups[group]]][["est"]],
+          #           lci = out_est[[nm_groups[group]]][["lci"]],
+          #           uci = out_est[[nm_groups[group]]][["uci"]],
+          #           error = out_err[[nm_groups[group]]][["est"]],
+          #           error_lci = out_err[[nm_groups[group]]][["lci"]],
+          #           error_uci = out_err[[nm_groups[group]]][["uci"]],
+          #           ratio_truth = truth_ratio,
+          #           ratio_est = out_ratio[["est"]],
+          #           ratio_lci = out_ratio[["lci"]],
+          #           ratio_uci = out_ratio[["uci"]],
+          #           overlaps = NA,
+          #           is_grouped = subpop,
+          #           group = nm_groups[group],
+          #           subpop_detected = as.character(
+          #             subpop_detected[[nm_groups[group]]])))
+          #       
+          #     } # end of [group] loop
+          #     
+          #   } # end of if (is.null(out_meta[["groups"]]))
+          # } # end of if (subpop)
+          
+          rv$err_prev[[target]] <- c(rv$err_prev[[target]], abs(err))
+          last_values[[target]] <- 
+            (length(rv$err_prev[[target]])-3):length(rv$err_prev[[target]])
+          
+        } # end of [target] loop
+        
+        if (trace) message(" - No. sims (total): ", length(rv$simList))
+        if (trace) message(paste0(" - Error: ",
+                                  round(abs(err) * 100, 1), "%"))
+        
+        if (trace) msg_log(
+          style = 'warning',
+          message = paste0("Estimation for set no. ", i, " ",
+                           msg_success("completed"), "..."),
+          run_time = difftime(Sys.time(), start_time_i, units = "secs"))
+        
+        shinyFeedback::showToast(
+          type = "success",
+          message = paste0("Set ", i, " out of ",
+                           length(m_sets), " completed."),
+          .options = list(
+            progressBar = FALSE,
+            closeButton = TRUE,
+            preventDuplicates = TRUE,
+            positionClass = "toast-bottom-right"))
+        
+        # Break conditions:
+        
+        err_values <- rv$err_prev[[
+          rv$set_target]][last_values[[rv$set_target]]]
+        
+        if (rv$which_meta == "mean") {
+          
+          if (all(err_values < threshold)) {
+            if (!is.null(out_meta)) {
+              
+              overlaps_with_truth <- dplyr::between(
+                truth[["All"]],
+                out_est[["All"]][["lci"]],
+                out_est[["All"]][["uci"]])
+              
+              if (overlaps_with_truth) {
+                broke <- TRUE
+                break
+              }
+            }
+          }
+          
+        } # end of if (rv$which_meta == "mean")
+        
+        if (rv$which_meta == "compare") {
+          
+          cov <- Inf
+          if (all(err_values < threshold)) {
+            
+            cov_list <- lapply(rv$set_target, function(target) {
+              
+              tmp_dt_meta <- dplyr::filter(dt_meta, .data$type == target)
+              if (!is.na(tmp_dt_meta[nrow(tmp_dt_meta), ]$est)) {
+                cov <- out_meta[[target]][["All"]]$meta[
+                  grep("CoV", rownames(
+                    out_meta[[target]][["All"]]$meta)), 2][[2]]
+                return(cov)
+              }
+              
+              return(NULL)
+              
+            }) # end of lapply
+            
+            overlaps_with_truth <- FALSE
+            if (!is.null(out_meta[[rv$set_target]][["groups"]])) {
+              
+              meta_truth <- rv$metaList_groups[[1]][[rv$set_target]]
+              overlaps_with_truth <- dplyr::between(
+                .get_ratios(out_meta[[rv$set_target]][["groups"]])$est,
+                .get_ratios(meta_truth)$lci, 
+                .get_ratios(meta_truth)$uci)
+            }
+            
+            cov <- cov_list[[rv$set_target]]
+            
+            # if cov -> infinity,
+            # still sensitive to small changes in the mean.
+            if (!is.infinite(cov) && overlaps_with_truth) {
+              broke <- TRUE
+              break
+            }
+          }
+          
+        } # end of if (rv$which_meta == "compare")
+        
+      } # end of while()
+      
+      truthList_inds <- .get_expected_values(
+        rv, rv$set_target, summarized = FALSE)
+      
+      if ("Home range" %in% rv$which_question) {
+        rv$truth$hr <- truthList_inds[[rv$set_target]]
+      }
+      
+      if ("Speed & distance" %in% rv$which_question) {
+        rv$truth$ctsd <- truthList_inds[[rv$set_target]]
+      }
+      
+      rv$dev$n <- lapply(seq_along(rv$simList), function(x)
+        nrow(rv$simList[[x]]))
+      
+      for (i in seq_for) {
+        if (i > length(rv$simfitList)) next
+        
+        N1 <- N2 <- NULL
+        nm <- names(rv$simList)[[i]]
+        seed <- as.character(nm)
+        
+        group <- 1
+        if (subpop) group <- ifelse(nm %in% rv$groups[[2]]$A, "A", "B")
+        
+        if ("Home range" %in% rv$which_question) {
+          
+          truth <- rv$truth$hr[[seed]]$area
+          N1 <- extract_dof(rv$akdeList[[i]], "area")[[1]]
+          
+          if (is.null(N1)) {
+            out_est <- rep(NA, 3) 
+            out_err <- rep(NA, 3)
+            tmpunit <- NA
+            
+          } else if (N1 < 0.001) {
+            out_est <- rep(NA, 3) 
+            out_err <- rep(NA, 3)
+            tmpunit <- NA
+            
+          } else {
+            tmpsum <- summary(rv$akdeList[[i]])
+            tmpname <- rownames(summary(rv$akdeList[[i]])$CI)
+            tmpunit <- extract_units(tmpname[grep("^area", tmpname)])
+            
+            out_est <- c(
+              "lci" = tmpsum$CI[1], 
+              "est" = tmpsum$CI[2], 
+              "uci" = tmpsum$CI[3]) 
+            out_err <- c( 
+              "lci" = ((out_est[[1]] %#% tmpunit) - truth) / truth, 
+              "est" = ((out_est[[2]] %#% tmpunit) - truth) / truth, 
+              "uci" = ((out_est[[3]] %#% tmpunit) - truth) / truth) 
+          }
+          
+          out_est_df <- data.frame(
+            seed = seed,
+            lci = out_est[[1]], 
+            est = out_est[[2]], 
+            uci = out_est[[3]], 
+            unit = tmpunit)
+          
+          out_err_df <- data.frame(
+            seed = seed,
+            lci = out_err[[1]], 
+            est = out_err[[2]], 
+            uci = out_err[[3]])
+          
+        } # end of if (hr)
+        
+        if ("Speed & distance" %in% rv$which_question) {
+          
+          truth <- rv$truth$ctsd[[seed]]
+          N2 <- extract_dof(rv$ctsdList[[i]], "speed")[[1]]
+          
+          if (N2 < 0.001) {
+            out_est <- rep(NA, 3) 
+            out_err <- rep(NA, 3)
+            tmpunit_speed <- NA
+            
+            out_dist_est <- rep(NA, 3)
+            out_dist_err <- rep(NA, 3)
+            tmpunit_dist <- NA
+            
+          } else {
+            tmpsum <- rv$ctsdList[[i]]
+            tmpname <- rownames(tmpsum$CI)
+            tmpunit_speed <- extract_units(tmpname[grep("speed", tmpname)])
+            
+            out_est <- c(
+              "lci" = tmpsum$CI[1], 
+              "est" = tmpsum$CI[2], 
+              "uci" = tmpsum$CI[3]) 
+            out_err <- c( 
+              "lci" = ((out_est[[1]] %#% tmpunit_speed) - truth) / truth, 
+              "est" = ((out_est[[2]] %#% tmpunit_speed) - truth) / truth, 
+              "uci" = ((out_est[[3]] %#% tmpunit_speed) - truth) / truth) 
+            
+            if (is.null(rv$pathList[[i]])) {
+              out_dist_est <- rep(NA, 3)
+              out_dist_err <- rep(NA, 3)
+              tmpunit_dist <- NA
+            } else {
+              dur_days <- "days" %#% rv$dur$value %#% rv$dur$unit
+              truth_dist <- sum(rv$pathList[[i]]$dist, na.rm = TRUE)
+              out_dist_est <- c(
+                "lci" = ("kilometers/day" %#% out_est[[1]]
+                         %#% tmpunit_speed) * dur_days, 
+                "est" = ("kilometers/day" %#% out_est[[2]]
+                         %#% tmpunit_speed) * dur_days, 
+                "uci" = ("kilometers/day" %#% out_est[[3]]
+                         %#% tmpunit_speed) * dur_days)
+              
+              tmpunit_dist <- "kilometers"
+              truth_dist <- tmpunit_dist %#% truth_dist
+              
+              out_dist_err <- c( 
+                "lci" = (out_dist_est[[1]] - truth_dist) / truth_dist, 
+                "est" = (out_dist_est[[2]] - truth_dist) / truth_dist, 
+                "uci" = (out_dist_est[[3]] - truth_dist) / truth_dist) 
+            }
+          }
+          
+          out_est_df <- data.frame(
+            seed = seed,
+            lci = out_est[[1]], 
+            est = out_est[[2]], 
+            uci = out_est[[3]], 
+            unit = tmpunit_speed)
+          
+          out_err_df <- data.frame(
+            seed = seed,
+            lci = out_err[[1]], 
+            est = out_err[[2]], 
+            uci = out_err[[3]])
+          
+          out_dist_est_df <- data.frame(
+            seed = nm,
+            lci = out_dist_est[[1]], 
+            est = out_dist_est[[2]], 
+            uci = out_dist_est[[3]], 
+            unit = tmpunit_dist)
+          
+          out_dist_err_df <- data.frame(
+            seed = seed,
+            lci = out_dist_err[[1]], 
+            est = out_dist_err[[2]], 
+            uci = out_dist_err[[3]])
+          
+        } # end of if (ctsd)
+        
+        if (rv$is_emulate) {
+          tau_p <- extract_pars(
+            emulate_seeded(rv$meanfitList[[group]], rv$seedList[[i]]),
+            "position")[[1]]
+          tau_v <- extract_pars(
+            emulate_seeded(rv$meanfitList[[group]], rv$seedList[[i]]),
+            "velocity")[[1]]
+          sigma <- extract_pars(
+            emulate_seeded(rv$meanfitList[[group]], rv$seedList[[i]]),
+            "sigma")[[1]]
+        } else {
+          tau_p <- rv$tau_p[[group]]
+          tau_v <- rv$tau_v[[group]]
+          sigma <- rv$sigma[[group]]
+        }
+        
+        if ("Home range" %in% rv$which_question) {
+          
+          rv$hrEst <<- rbind(rv$hrEst, out_est_df)
+          rv$hrErr <<- rbind(rv$hrErr, out_err_df)
+          
+          rv$hr$tbl <<- rbind(
+            rv$hr$tbl, 
+            .build_tbl(
+              target = "hr",
+              group = if (subpop) group else NA,
+              data = rv$simList[[i]], 
+              seed = names(rv$simList)[[i]],
+              obj = rv$akdeList[[i]],
+              tau_p = tau_p,
+              tau_v = tau_v,
+              sigma = sigma,
+              area = out_est_df,
+              area_error = out_err_df))
+        }
+        
+        if ("Speed & distance" %in% rv$which_question) {
+          
+          rv$speedEst <<- rbind(rv$speedEst, out_est_df)
+          rv$speedErr <<- rbind(rv$speedErr, out_err_df)
+          
+          rv$distEst <<- rbind(rv$distEst, out_dist_est_df)
+          rv$distErr <<- rbind(rv$distErr, out_dist_err_df)
+          
+          rv$sd$tbl <<- rbind(
+            rv$sd$tbl,
+            .build_tbl(
+              target = "ctsd",
+              group = if (rv$grouped) group else NA,
+              data = rv$simList[[i]],
+              seed = names(rv$simList)[[i]],
+              obj = rv$ctsdList[[i]],
+              tau_p = tau_p,
+              tau_v = tau_v,
+              sigma = sigma,
+              speed = rv$speedEst[i, ],
+              speed_error = rv$speedErr[i, ],
+              distance = rv$distEst[i, ],
+              distance_error = rv$distErr[i, ]))
+        }
+        
+      } # end of [i] loop (individuals)
+      
+      if (rv$set_analysis == "hr") rv$hr_completed <- TRUE
+      if (rv$set_analysis == "ctsd") rv$sd_completed <- TRUE
+      rv$is_analyses <- TRUE
+      rv$is_report <- FALSE
+      rv$is_meta <- FALSE
+      
+      msg_log(
+        style = "success",
+        message = paste0("Simulations ",
+                         msg_success("completed"), "."),
+        run_time = difftime(Sys.time(), start_time, units = "sec"))
+      
+      shinyFeedback::showToast(
+        type = "success",
+        message = "Simulations completed!",
+        .options = list(
+          timeOut = 3000,
+          extendedTimeOut = 3500,
+          progressBar = FALSE,
+          closeButton = TRUE,
+          preventDuplicates = TRUE,
+          positionClass = "toast-bottom-right"
+        )
+      )
+      
+      shinybusy::remove_modal_spinner()
+      
+      txt_full <- p(
+        "You set a maximum of", rv$nsims, "tags.",
+        
+        # "The error threshold of", 
+        # wrap_none(rv$error_threshold, "%"), "was achieved by",
+        # ..., "tags but only stabilized at",
+        # length(rv$simList), "tags.",
+        
+        "To achieve a",
+        "stable error threshold of", 
+        wrap_none(rv$error_threshold * 100, "%,"),
+        "the simulation determined that you only need",
+        length(rv$simList), "tags.",
+        "This ensures a cost-effective balance between accuracy",
+        "and the number of units.", br(),
+        "If the", span("minimum number of tabs",
+                       style = "font-weight: bold;"),
+        # wrap_none("(",length(rv$simList),")"), 
+        "is close to the",
+        # rv$nsims,
+        span("maximum number of tabs",
+             style = "font-weight: bold;"),
+        "consider increasing the number of tabs",
+        "to improve stability.",
+        "If the", span("minimum number of tabs",
+                       style = "font-weight: bold;"), "is much",
+        "lower, you may be able to refine this value further",
+        "by reducing your error threshold.",
+        br(), 
+        
+        "For a more detailed analysis, explore the outputs in the",
+        shiny::icon("layer-group", class = "cl-sea"),
+        span("Meta-analyses", class = "cl-sea"), "tab,",
+        "and through", wrap_none(
+          span("combination testing",
+               style = "font-weight: bold;"), ".")
+      )
+      
+      # txt_reference <- tagList(
+      #   h4(style = "margin-top: 30px;", "For more information:"),
+      #   
+      #   p(style = "font-family: var(--monosans);",
+      #     "Silva, I., Fleming, C. H., Noonan, M. J.,",
+      #     "Fagan, W. F. & Calabrese, J. M. (2025). Too few, too",
+      #     "many, or just right? Optimizing sample sizes for",
+      #     "population-level inferences in animal tracking",
+      #     "projects (in prep)."))
+      
+      if (length(rv$simList) < rv$nsims) {
+        
+        shiny::showModal(
+          shiny::modalDialog(
+            title = h4(span("Minimum", class = "cl-sea"),
+                       "number of tags:"),
+            
+            fluidRow(
+              style = paste("margin-right: 20px;",
+                            "margin-left: 20px;"),
+              
+              txt_full #,
+              # txt_reference
+              
+            ), # end of fluidRow
+            
+            footer = modalButton("Dismiss"),
+            size = "m")) # end of modal
+        
+      } else if (length(rv$simList) == rv$nsims) {
+        
+        if (all(err_values < rv$error_threshold)) {
+          
+          shiny::showModal(
+            shiny::modalDialog(
+              title = h4(span("Minimum", class = "cl-sea"),
+                         "number of tags:"),
+              
+              fluidRow(
+                style = paste("margin-right: 20px;",
+                              "margin-left: 20px;"),
+                
+                txt_full #,
+                # txt_reference
+                
+              ), # end of fluidRow
+              
+              footer = modalButton("Dismiss"),
+              size = "m")) # end of modal
+          
+        } else {
+          
+          shiny::showModal(
+            shiny::modalDialog(
+              title = h4(span("Minimum", class = "cl-sea"),
+                         "number of tags:"),
+              
+              fluidRow(
+                style = paste("margin-right: 20px;",
+                              "margin-left: 20px;"),
+                
+                p(
+                  "You set a maximum of", rv$nsims, "tags,",
+                  "which was not sufficient to achieve a stable",
+                  "error below the threshold of", 
+                  wrap_none(rv$error_threshold * 100, "%."),
+                  "Please increase the",
+                  span("maximum number of tabs",
+                       style = "font-weight: bold;"),
+                  "if you wish to continue testing.",
+                  
+                  "For a more detailed analysis, explore the outputs",
+                  "in the", shiny::icon("layer-group", class = "cl-sea"),
+                  span("Meta-analyses", class = "cl-sea"), "tab,",
+                  "and through", wrap_none(
+                    span("combination testing",
+                         style = "font-weight: bold;"), ".")
+                ) #,
+                
+                # txt_reference
+                
+              ), # end of fluidRow
+              
+              footer = modalButton("Dismiss"),
+              size = "s")) # end of modal
+          
+        } # end of if (all(err_values < rv$error_threshold))
+      } # end of if (length(rv$simList) < rv$nsims)
+      
+    }, label = "o-m_sims_minimum_m") %>% # end of observer
+      bindEvent(input$mButton_repeat)
+    
+  }) # end of moduleServer
+}
+
+## To be copied in the UI
+# mod_comp_m_ui("comp_m_1")
+
+## To be copied in the server
+# mod_comp_m_server("comp_m_1")

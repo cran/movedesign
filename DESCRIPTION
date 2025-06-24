@@ -1,0 +1,40 @@
+Package: movedesign
+Title: Study Design Toolbox for Movement Ecology Studies
+Version: 0.3.1
+Authors@R: 
+    person("Ines", "Silva", , "i.simoes-silva@hzdr.de", role = c("cre", "aut", "cph"),
+           comment = c(ORCID = "0000-0003-4850-6193"))
+Maintainer: Ines Silva <i.simoes-silva@hzdr.de>
+Description: Toolbox and 'shiny' application to help researchers design
+    movement ecology studies, focusing on two key objectives:
+    estimating home range areas, and estimating fine-scale
+    movement behavior, specifically speed and distance traveled.
+    It provides interactive simulations and methodological
+    guidance to support study planning and decision-making.
+    The application is described in Silva et al. (2023)
+    <doi:10.1111/2041-210X.14153>.
+License: GPL (>= 3)
+URL: https://ecoisilva.github.io/movedesign/,
+        https://ecoisilva.r-universe.dev/movedesign
+BugReports: https://github.com/ecoisilva/movedesign/issues
+Depends: R (>= 3.5.0)
+Imports: bayestestR, bsplus, combinat, config (>= 0.3.1), crayon, ctmm
+        (>= 0.6.1), data.table, dplyr, fontawesome, gdtools, ggiraph,
+        ggplot2, ggpubr, ggtext, golem (>= 0.3.2), grDevices, gsl,
+        lubridate, parallel, parsedate, quarto, reactable, rintrojs,
+        rlang, scales, shiny (>= 1.7.1), shinyalert, shinybusy,
+        shinydashboard, shinydashboardPlus, shinyFeedback, shinyjs,
+        shinyWidgets, stats, stringr, terra, tidyr, utils, viridis
+Suggests: knitr, rmarkdown, shinytest2
+VignetteBuilder: knitr, quarto
+Config/testthat/edition: 3
+Encoding: UTF-8
+Language: en-US
+LazyData: true
+RoxygenNote: 7.3.2
+NeedsCompilation: no
+Packaged: 2025-06-19 11:09:55 UTC; simoes48
+Author: Ines Silva [cre, aut, cph] (ORCID:
+    <https://orcid.org/0000-0003-4850-6193>)
+Repository: CRAN
+Date/Publication: 2025-06-24 08:50:01 UTC

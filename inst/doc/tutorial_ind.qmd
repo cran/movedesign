@@ -1,0 +1,183 @@
+---
+title: "Walkthrough (single estimate)"
+author: "Inês Silva"
+date: "`r Sys.Date()`"
+description: > 
+  How to design an animal tracking project with 'movedesign'
+vignette: >
+  %\VignetteIndexEntry{Tutorial_ind}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+knitr:
+  opts_chunk: 
+    collapse: true
+    comment: '#>'
+bibliography: references.bib
+csl: style.csl
+---
+
+```{=html}
+<style>
+body {
+    text-align: justify;
+}
+svg {
+  margin-right: 0.3em;
+}
+.custom-box {
+    background-color: #009DA0;
+    color: white;
+    padding: 10px 10px 2px 10px;
+    margin: 8px 0 8px 0;
+}
+code {
+  background-color: RGB(232, 232, 232) !important;
+}
+</style>
+```
+
+# Overview
+
+```{r, include = FALSE}
+
+library(fontawesome)
+
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Walkthrough
+
+This workflow is presented in Silva *et al.* [-@silva2023movedesign], and is a simplified case study, designed for quick execution. We will use a GPS tracking dataset of African buffalos (*Syncerus caffer*) tracked in Kruger National Park between 2005 and 2006 [@cross2009], to inform our simulations. Our primary goal is to reliably estimate **home range area** for a single African Buffalo. 
+
+![](images/tutorial1_img3.png){fig-align="center"}
+
+First, we will navigate to (1) the `r fa("file-circle-plus", fill = "#009DA0")` `'Select data'` tab to load a dataset available within the package. Then, we will move to (2) the `r fa("stopwatch", fill = "#009DA0")` `'Sampling design'` tab to define the sampling duration and interval. Finally, we will proceed to (3) the `r fa("compass-drafting")` `'Analyses'` tabs.
+
+Afterwards, we can review a detailed summary of all outputs in the `'Report'` tab.
+
+::: custom-box
+`r fontawesome::fa("bell")` Please choose `Select` as your data source to choose from a list of available species. Then, set `Home range` and `Speed & distance` as your research targets. For the analytical target, choose `Individual estimate`.
+:::
+
+### Data
+
+By navigating to the `r fa("file-circle-plus", fill = "#009DA0")` `'Select data'` tab, we can choose from seven species available in the `ctmm` package. Parameters extracted from these species can inform tracking studies of other species with similar movement behaviors.
+
+::: custom-box
+`r fontawesome::fa("bell")` First, select the `African Buffalo` (*Syncerus caffer*) as your study species. From the dropdown menu, select `Cilla` as your focal individual and click the `'Validate'` button.
+:::
+
+When choosing an individual, we must ensure it accurately represents the movement behavior we aim to emulate. The validation step ensures that we can detect the **position autocorrelation timescale** ($\tau_p$), essential for home range estimation, and the **velocity autocorrelation timescale** ($\tau_v$), for speed & distance estimation.
+
+::: custom-box
+`r fontawesome::fa("bell")` Once validation is successful, the button should now read `'Validated!'` Proceed by clicking the `'Extract'` button.
+:::
+
+![](images/tutorial1_img4.png){fig-align="center"}
+
+### Sampling design
+
+Next, we navigate to the `r fa("stopwatch", fill = "#009DA0")` `'Sampling design'` tab. Here, we evaluate an intended sampling design for a future tracking project, by simulating data conditioned on the extracted movement parameters.
+
+**Step 1.** *Select a tracking device:*
+
+::: custom-box
+`r fontawesome::fa("bell")` Choose `GPS/Satellite logger` as your tracking device.
+:::
+
+GPS/Satellite loggers automate sampling using satellite systems. However, both **sampling duration** and **sampling interval** are inherently limited by GPS battery life. This tradeoff determines how much data can be collected over time.
+
+**Step 2.** *Adjust battery life and fix rate:*
+
+Here, we can configure two key parameters: `GPS battery life`, the expected operational duration of the GPS device, and `Maximum GPS fix rate`, the longest possible time interval between recorded locations (fixes) over that duration. The device manufacturer typically provides this information, which is listed in the model’s documentation.
+
+::: custom-box
+`r fontawesome::fa("bell")` Now, adjust the settings as follows: set `GPS battery life` to 2 years, and set the `Maximum GPS fix rate` to 1 fix every 6 hours. Then, from the sampling parameters plot, choose a sampling interval of `2 hours`.
+:::
+
+**Step 3 (optional).** *Add device limitations:*
+
+We may include other device limitations, such as location error and success fix rate, to understand the precision and reliability of the sampling schedule under various conditions.
+
+::: custom-box
+`r fontawesome::fa("bell")` Change `Fix success rate (%)` to 85%, and the `Location error` to 10 meters.
+:::
+
+**Step 4.** *Validate and run simulation:*
+
+::: custom-box
+`r fontawesome::fa("bell")` Click the 'Validate' button until it reads 'Validated!', then click the 'Run' button.
+:::
+
+Two notifications will appear: the first during the calculation of the expected run time, and the second during the simulation and model fitting based on the current parameters. **Wait for both to finish before proceeding.**
+
+![](images/tutorial1_img5.png){fig-align="center"}
+
+### Analyses
+
+Navigate to the `r fa("compass-drafting")` `'Analyses'` tabs.
+
+#### Home range estimation
+
+In this step, we use the **Autocorrelated Kernel Density Estimator (AKDE)** [@fleming2015; @silva2022], available from the `ctmm` `R` package, to estimate home range area. In the introduction box of the `r fa("map-location-dot")` `'Home range'` tab:
+
+**Step 1.** *Run the estimation:*
+
+::: custom-box
+`r fontawesome::fa("bell")` Click the `Run estimation` to generate the home range estimate.
+:::
+
+**Step 2.** *Interpret the outputs:*
+
+This tab presents three key outputs:
+
+-   **Estimate**: The computed home range size, accompanied by the 95% confidence interval (low–high) to account for uncertainty.
+
+-   **Relative error (%)**: The percentage deviation of the estimate and its CIs from the true home range. Lower error values indicate a more precise estimate.
+
+-   **Effective sample size (N**<sub>area</sub>): The number of home range crossing events, which influences the reliability of the estimate.
+
+Given the current sampling parameters (sampling interval of *one fix every 2 hours* and the realized duration of *10.1 months*), N<sub>area</sub> ≈ 42, indicating approximately 42 home range crossing events occurred within the sampling period.
+
+The visualization compares the estimated home range to the true home range. Ideally, the point estimate should closely match the true home range. The 95% confidence intervals should be as narrow as possible and tightly follow the point estimate.
+
+In our case study, a single simulation yielded wide confidence intervals, suggesting high uncertainty and suggesting that a longer sampling duration may be necessary. However, the relative error was low, indicating that while additional data collection may not substantially change the point estimates, it will narrow confidence intervals.
+
+![](images/tutorial1_img6.png){fig-align="center"}
+
+#### Speed & distance estimation
+
+For this step, we are using the **continuous-time speed & distance (CTSD)** estimator [@noonan2019], available in the `ctmm` `R` package. In the introduction box of the `r fa("gauge-high")` `'Speed & distance'` tab:
+
+**Step 1.** *Run the estimation:*
+
+::: custom-box
+`r fontawesome::fa("bell")` Click the `Run estimation` to estimate speed & distance.
+:::
+
+**Step 2.** *Interpret the outputs:*
+
+The output types here are identical to those in the `r fa("map-location-dot")` `'Home range'` tab. However, in this case, they apply to **distance** (comparing the trajectory derived from the selected sampling schedule to the true fine-scale trajectory, shown in grey), and **speed**. Ideally, both should closely align with the truth.
+
+Wide confidence intervals indicate high uncertainty, suggesting that a shorter sampling interval may be necessary to improve accuracy.
+
+Given the current sampling parameters (sampling interval of *one fix every 2 hours* and the realized duration of *10.1 months*), we have an N<sub>speed</sub> ≈ 1,127. This is the equivalent to 1,127 independently sampled velocities. A higher N<sub>speed</sub> enhances estimate precision and reduces uncertainty.
+
+![](images/tutorial1_img7.png){fig-align="center"}
+
+### Report
+
+::: custom-box
+`r fontawesome::fa("bell")` Click the `Build report` button to generate a detailed evaluation of how well your sampling design meets your research targets.
+:::
+
+The report compiles all settings and outputs in one place, helping us assess whether the *sampling parameters* were sufficient for a reliable **home range area estimate**, and/or **speed and distance estimate**. Use this report to fine-tune your sampling design to ensure robust outputs.
+
+![](images/tutorial1_img8.png){fig-align="center"}
+
+You can compare your results to our simulations based on similar timescales and sampling parameters, allowing for a quick assessment of consistency.
+
+## References
