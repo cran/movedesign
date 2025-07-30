@@ -41,13 +41,13 @@ mod_viz_meta_server <- function(id, rv) {
         req(rv$metaList_groups)
         req(rv$metaList[[rv$set_analysis]]) }
       
-      p.optimal <- plot_meta_combinations(
+      p.optimal <- plot_meta_resamples(
         rv,
         set_target = rv$set_analysis,
         random = rv$random, 
         subpop = rv$grouped, 
         colors = c(pal$sea, 
-                   pal$grn, 
+                   # pal$grn,
                    pal$dgr))
       
       p.optimal <- p.optimal +

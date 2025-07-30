@@ -727,6 +727,12 @@ mod_tab_data_upload_server <- function(id, rv) {
         rv$species <- species
       }
       
+      if (any(grepl("UTMzone", names(out_dataset)))) {
+        out_dataset <- out_dataset %>%
+          dplyr::mutate(
+            UTMzone = as.numeric(gsub("\\D", "", .data$UTMzone)))
+      }
+      
       parsedate::parse_date("1111-11-11")
       
       out_dataset <- tryCatch(
@@ -1246,7 +1252,7 @@ mod_tab_data_upload_server <- function(id, rv) {
       }
       
       rv$is_isotropic <- c("All" = TRUE)
-      if (rv$is_emulate) {
+      if (rv$add_ind_var) {
         
         fit0[sapply(fit0, is.null)] <- NULL
         meanfit0 <- tryCatch(
@@ -1270,7 +1276,7 @@ mod_tab_data_upload_server <- function(id, rv) {
           rv$tau_p <- extract_pars(fit0, "position", meta = get_meta)
           rv$tau_v <- extract_pars(fit0, "velocity", meta = get_meta)
           rv$speed <- extract_pars(fit0, "speed", meta = get_meta)
-          rv$is_emulate <- FALSE
+          rv$add_ind_var <- FALSE
           
         } else {
           
@@ -1340,7 +1346,7 @@ mod_tab_data_upload_server <- function(id, rv) {
             message = paste0(
               "Extraction ", msg_danger("failed"), 
               "for one of the groups."))
-          rv$is_emulate <- FALSE
+          rv$add_ind_var <- FALSE
           
         } else {
           rv$meanfitList <- list(rv$meanfitList[[1]],
@@ -1357,19 +1363,13 @@ mod_tab_data_upload_server <- function(id, rv) {
         ### Validate groups: ----------------------------------------------
         
         fitA <- tryCatch({
-          out_fit <- emulate_seeded(rv$meanfitList[["A"]], rv$seed0)
-          if (length(out_fit$isotropic) > 1)
-            out_fit$isotropic <- out_fit$isotropic[["sigma"]]
-          out_fit
+          simulate_seeded(rv$meanfitList[["A"]], rv$seed0)
         }, error = function(e) {
           message("A warning occurred:", conditionMessage(e), "\n")
         })
         
         fitB <- tryCatch({
-          out_fit <- emulate_seeded(rv$meanfitList[["B"]], rv$seed0)
-          if (length(out_fit$isotropic) > 1)
-            out_fit$isotropic <- out_fit$isotropic[["sigma"]]
-          out_fit
+          simulate_seeded(rv$meanfitList[["B"]], rv$seed0)
         }, error = function(e) {
           message("A warning occurred:", conditionMessage(e), "\n")
         })

@@ -10,31 +10,106 @@ run_meta(
   subpop = FALSE,
   trace = FALSE,
   iter_step = 2,
-  .automate_seq = FALSE,
-  .only_max_m = FALSE,
-  .lists = NULL
+  ...
 )
 }
 \arguments{
-\item{rv}{A list containing outputs, settings and data objects. Must not be NULL.}
+\item{rv}{A named list containing simulation inputs, settings, and
+group assignments. Must not be NULL.}
 
-\item{set_target}{Character. Research target: \code{"hr"} for home range or \code{"ctsd"} for speed & distance.}
+\item{set_target}{Character vector specifying the target metrics.
+Options are "hr" (for home range area) and/or "ctsd" (for movement
+speed). Defaults to c("hr", "ctsd").}
 
-\item{subpop}{Logical. If TRUE, will run meta-analyses with groups. Default is FALSE.}
+\item{subpop}{Logical; if TRUE, analyzes population-level inferences
+by subpopulations/groups (e.g., males vs. females). Requires group
+assigments in \code{rv}.}
 
-\item{trace}{Logical. If TRUE, prints progress messages. Default is FALSE.}
+\item{trace}{Logical; if TRUE, prints progress messages.
+Default is FALSE.}
 
-\item{iter_step}{Numeric. The size of each iteration step. Default is 2.}
+\item{iter_step}{Integer. Step size used to increment the number of
+individuals sampled in each iteration. For example, if
+\code{iter_step = 2}, the function will evaluate sample sizes of 2, 4,
+6, etc., up to the maximum population sample size. Defaults to 2.}
 
-\item{.automate_seq}{Logical. If TRUE, overwrites sequence automatically to improve plot readability. Default is FALSE.}
-
-\item{.only_max_m}{Logical. If TRUE, will only run the maximum number of individuals. Default is FALSE.}
-
-\item{.lists}{A list containing already created meta inputs. Default is NULL.}
+\item{...}{Additional arguments for advanced control:
+\describe{
+\item{.only_max_m}{Logical. If \code{TRUE}, runs the meta-analysis
+only at the maximum population sample size. Skips all
+intermediate sample sizes.}
+\item{.max_m}{Integer. Sets a user-defined maximum sample size
+to use in the resampling sequence. Overrides the default,
+which uses all available individuals.}
+\item{.m}{Integer. Specifies exact sample size to use. Overrides
+automatic sequence generation. Accepts a single value.}
+\item{.automate_seq}{Logical. If \code{TRUE}, automatically generates
+an informative and non-redundant sequence of sample sizes
+for better plot readability and runtime efficiency.}
+\item{.lists}{List (Optional). Supplies precomputed input
+objects, generated via \code{.build_meta_objects()}.}
+}}
 }
 \value{
-The outputs of the \code{run_meta_resampled} function for a single combination.
+A data frame summarizing all outputs for each target,
+population sample size, and group (if specified) for a single
+draw (sample). Columns include:
+\describe{
+\item{type}{Research target, e.g., \code{hr} and/or \code{ctsd}.}
+\item{m}{Number of individuals in the sample.}
+\item{sample}{Sample index (for repeated draws).}
+\item{truth}{True, expected value.}
+\item{est}{Point estimate.}
+\item{lci}{Lower confidence interval.}
+\item{uci}{Upper confidence interval.}
+\item{error}{Relative error.}
+\item{error_lci}{Lower CI for relative error.}
+\item{error_uci}{Upper CI for relative error.}
+\item{ratio_truth}{True group ratio (A/B), if subpop=TRUE.}
+\item{ratio_est}{Estimated group ratio.}
+\item{ratio_lci}{Lower CI for estimated group ratio.}
+\item{ratio_uci}{Upper CI for estimated group ratio.}
+\item{overlaps}{Logical; whether estimate overlaps with the truth.}
+\item{is_grouped}{Logical; \code{TRUE} if grouped.}
+\item{group}{Group label (\code{All}, \code{A}, \code{B}).}
+\item{subpop_detected}{Logical; was a subpopulation detected?}
+}
 }
 \description{
-This function wraps around the \code{run_meta_resampled} function to run hierarchical models (with no resamples) for a quick evaluation.
+Performs hierarchical meta-analyses on animal movement simulation
+outputs to estimate key movement metrics, such as mean home range area
+and/or mean movement speed for a sampled population. The function can
+also compare these metrics between two groups (via ratios) if specified.
+
+The function leverages core methods from the \code{ctmm} package:
+\itemize{
+\item \code{ctmm::akde()}: Computes home range areas using the Autocorrelated
+Kernel Density Estimator (AKDE), which explicitly accounts for the
+autocorrelation in animal movement data to produce statistically
+robust space-use estimates.
+\item \code{ctmm::speed()}: Computes Continuous-Time Speed and Distance (CTSD)
+estimates, providing biologically meaningful summaries of movement
+speed, which is proportional to distance traveled.
+These methods allow for robust comparisons across individuals,
+groups, and resampling scenarios.
 }
+
+Optionally, the function performs resampling by randomly drawing
+multiple sets of individuals from the population, allowing assessment
+of estimate variability as sample size increases or as individuals are
+resampled. This approach helps quantify the precision and reliability
+of estimates under different sampling scenarios.
+
+Internally, this function wraps \code{\link[=run_meta_resamples]{run_meta_resamples()}} to fit
+hierarchical models without resampling for initial evaluation.
+}
+\note{
+This function is intended for internal use and may assume inputs
+follow specific structure and constraints not referenced explicitly.
+}
+\seealso{
+\code{\link[=run_meta_resamples]{run_meta_resamples()}},
+\code{\link[ctmm:akde]{ctmm::akde()}},
+\code{\link[ctmm:speed]{ctmm::speed()}}
+}
+\keyword{internal}

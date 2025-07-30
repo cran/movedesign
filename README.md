@@ -1,20 +1,22 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# movedesign <img src="https://raw.githubusercontent.com/ecoisilva/movedesign/main/inst/app/www/logo.png" style="padding: 15px 0px 0px 0px;" align="right" height="140"/>
+# movedesign <a href="https://ecoisilva.github.io/movedesign/"><img src="https://raw.githubusercontent.com/ecoisilva/movedesign/main/inst/app/www/logo.png" style="padding: 15px 0px 0px 0px;" align="right" height="140"/></a>
 
 <!-- badges: start -->
 
-![Static Badge](https://img.shields.io/badge/version-0.3.0-blue)
-[![DOI](https://zenodo.org/badge/474098792.svg)](https://zenodo.org/badge/latestdoi/474098792)<br>
-[![R-CMD-check](https://github.com/ecoisilva/movedesign/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/ecoisilva/movedesign/actions/workflows/R-CMD-check.yaml)
-[![Project Status: Active – The project has reached a stable, usable
-state and is being actively
+[![CRAN
+version](https://img.shields.io/cran/v/movedesign?color=%23009da0&label=CRAN%20version)](https://CRAN.R-project.org/package=movedesign)
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.7963190-green?color=%23009da0)](https://doi.org/10.5281/zenodo.7963190)
+<br> [![Project Status: Active – The project has reached a stable,
+usable state and is being actively
 developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+[![R-CMD-check](https://github.com/ecoisilva/movedesign/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/ecoisilva/movedesign/actions/workflows/R-CMD-check.yaml)
 [![Hits](https://hits.sh/github.com/ecoisilva/hits.svg)](https://hits.sh/github.com/ecoisilva/movedesign/)
 <br>
 <!-- [![Github last commit date](https://img.shields.io/github/last-commit/ecoisilva/movedesign.svg?label=Updated&logo=github&cacheSeconds=600)](https://github.com/ecoisilva/movedesign/commits) -->
 <!-- [![CRAN_Status_Badge](https://www.r-pkg.org/badges/version/movedesign)](https://cran.r-project.org/package=movedesign) -->
+
 <!-- badges: end -->
 
 <br>
@@ -48,10 +50,17 @@ This app was built using the `golem` framework.
 
 ## Installation:
 
-To install the stable version of `movedesign`, run the following:
+To install the stable version of `movedesign` from CRAN:
 
 ``` r
-install.packages("movedesign", repos = c("https://ecoisilva.r-universe.dev", "https://cloud.r-project.org"))
+install.packages("movedesign")
+```
+
+To install the most recent development version directly from GitHub:
+
+``` r
+install.packages("remotes")
+remotes::install_github("ecoisilva/movedesign")
 ```
 
 If you encounter any issues, consult the installation troubleshooting
@@ -86,7 +95,7 @@ issue](https://github.com/ecoisilva/movedesign/issues). For more general
 questions and suggestions, contact [Inês
 Silva](mailto:i.simoes-silva@hzdr.de?subject=%5Bmovedesign%5D).
 
-## Citation
+## Citation:
 
 To cite `movedesign`, use the following:
 

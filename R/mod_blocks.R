@@ -161,9 +161,18 @@ mod_blocks_server <- function(id,
                
                req(value)
                value <- round(mean(value), 1)
-               if (type == "N") perc <- paste0(
-                 "-", round((100 - ((mean(value) * 100) /
-                                      mean(n))), 1), "%")
+               if (type == "N") {
+                 if (mean(value) > mean(n)) {
+                   perc <- paste0(
+                     round((100 - ((mean(value) * 100) /
+                                     mean(n))), 1), "%")
+                 } else {
+                   perc <- paste0(
+                     "-",
+                     round((100 - ((mean(value) * 100) /
+                                     mean(n))), 1), "%")
+                 }
+               }
                
              }, # end of type == "metrics"
              
@@ -174,6 +183,7 @@ mod_blocks_server <- function(id,
                
                if (grepl("Est", name)) {
                  
+                 req(get_id)
                  req(!is.na(out[get_id, 5]))
                  
                  out <- fix_unit(
@@ -205,7 +215,7 @@ mod_blocks_server <- function(id,
                               out[get_id, "uci"])
                  } else {
                    
-                   if (is_multiple) {
+                   if (is.null(get_id) && is_multiple) {
                      ci <- bayestestR::ci(
                        out$est, ci = .95, method = "HDI") %>% 
                        suppressWarnings() %>% 
@@ -216,6 +226,7 @@ mod_blocks_server <- function(id,
                                 mean(out$est, na.rm = TRUE),
                                 ci$CI_high)
                    } else {
+                     req(get_id)
                      value <- c(out[get_id, "lci"],
                                 out[get_id, "est"],
                                 out[get_id, "uci"])

@@ -352,19 +352,18 @@ mod_tab_meta_server <- function(id, rv) {
     ## Update number of resamples: ----------------------------------------
     
     # observe({
-    #   req(rv$meta$n_resample > 1)
-    #   
-    #   # if (!is.null(rv$meta_tbl_resample)) {
-    #   #   rv$meta$n_resample <- max(unique(rv$meta_tbl_resample$sample))
-    #   # }
+    #   req(rv$active_tab == 'meta')
+    #   req(rv$simList)
     #   
     #   shinyWidgets::updateAutonumericInput(
     #     session = session,
     #     inputId = "n_resamples",
-    #     value = rv$meta$n_resample)
-    #   
+    #     value = 0,
+    #     minimumValue = 1,
+    #     maximumValue = choose(length(rv$simList), 2))
+    # 
     # }) %>% # end of observe,
-    #   bindEvent(rv$meta$n_resample)
+    #   bindEvent(rv$simList)
     
     # DYNAMIC UI ELEMENTS -------------------------------------------------
     ## Hide elements at the start: ----------------------------------------
@@ -820,8 +819,8 @@ mod_tab_meta_server <- function(id, rv) {
           truth_summarized <- get_true_hr(
             sigma = rv$sigma,
             
-            emulated = rv$is_emulate,
-            fit = if (rv$is_emulate) rv$meanfitList else NULL,
+            ind_var = rv$add_ind_var,
+            fit = if (rv$add_ind_var) rv$meanfitList else NULL,
             
             grouped = rv$grouped,
             groups = if (rv$grouped) rv$groups[[2]] else NULL,
@@ -838,8 +837,8 @@ mod_tab_meta_server <- function(id, rv) {
             tau_v = rv$tau_v,
             sigma = rv$sigma,
             
-            emulated = rv$is_emulate,
-            fit = if (rv$is_emulate) rv$meanfitList else NULL,
+            ind_var = rv$add_ind_var,
+            fit = if (rv$add_ind_var) rv$meanfitList else NULL,
             
             grouped = rv$grouped,
             groups = if (rv$grouped) rv$groups[[2]] else NULL,
@@ -882,8 +881,8 @@ mod_tab_meta_server <- function(id, rv) {
             
             truth_summarized <- get_true_hr(
               sigma = rv$sigma,
-              emulated = rv$is_emulate,
-              fit = if (rv$is_emulate) rv$meanfitList else NULL,
+              ind_var = rv$add_ind_var,
+              fit = if (rv$add_ind_var) rv$meanfitList else NULL,
               grouped = rv$grouped,
               groups = if (rv$grouped) rv$groups[[2]] else NULL,
               summarized = TRUE)
@@ -902,8 +901,8 @@ mod_tab_meta_server <- function(id, rv) {
               tau_v = rv$tau_v,
               sigma = rv$sigma,
               
-              emulated = rv$is_emulate,
-              fit = if (rv$is_emulate) rv$meanfitList else NULL,
+              ind_var = rv$add_ind_var,
+              fit = if (rv$add_ind_var) rv$meanfitList else NULL,
               
               grouped = rv$grouped,
               groups = if (rv$grouped) rv$groups[[2]] else NULL,
@@ -1036,7 +1035,7 @@ mod_tab_meta_server <- function(id, rv) {
         get_analysis <- c(get_analysis, "ctsd")
       }
       
-      tmp <- run_meta_resampled(
+      tmp <- run_meta_resamples(
         rv, set_target = get_analysis,
         subpop = rv$grouped,
         random = FALSE, 
@@ -1070,8 +1069,9 @@ mod_tab_meta_server <- function(id, rv) {
       rv$random <- FALSE
       
       tmp <- get_meta_outputs()
-      rv$meta_tbl <<- dplyr::bind_rows(rv$meta_tbl, tmp)
-      rv$meta_tbl <- dplyr::distinct(rv$meta_tbl)
+      # rv$meta_tbl <<- dplyr::bind_rows(rv$meta_tbl, tmp)
+      # rv$meta_tbl <- dplyr::distinct(rv$meta_tbl)
+      rv$meta_tbl <- tmp
       rv$meta_tbl_resample <- NULL
       
       shinyjs::show(id = "metaBox_summary")
@@ -1080,7 +1080,7 @@ mod_tab_meta_server <- function(id, rv) {
       bindEvent(input$run_meta)
     
     
-    get_meta_permutation_outputs <- reactive({
+    get_meta_resampled_outputs <- reactive({
       
       start <- Sys.time()
       shinybusy::show_modal_spinner(
@@ -1119,11 +1119,13 @@ mod_tab_meta_server <- function(id, rv) {
       #   trace = TRUE,
       #   .only_max_m = TRUE)
       
-      tmp <- run_meta_resampled(
+      req(rv$n_resamples > 0)
+      
+      tmp <- run_meta_resamples(
         rv, set_target = get_analysis,
         subpop = rv$grouped,
         random = TRUE, 
-        max_samples = rv$n_resamples,
+        max_draws = rv$n_resamples,
         trace = TRUE,
         .automate_seq = TRUE)
       
@@ -1148,7 +1150,7 @@ mod_tab_meta_server <- function(id, rv) {
       shinybusy::remove_modal_spinner()
       return(tmp)
       
-    }) %>% # end of reactive, "get_meta_permutation_outputs",
+    }) %>% # end of reactive, "get_meta_resampled_outputs",
       bindCache(c(
         rv$which_question, 
         rv$simList, 
@@ -1171,15 +1173,16 @@ mod_tab_meta_server <- function(id, rv) {
         rv$n_resamples <- input$n_resamples - max_n_resamples
       }
       
-      tmp <- get_meta_permutation_outputs()
+      tmp <- get_meta_resampled_outputs()
       if (!is.null(rv$meta_tbl_resample)) {
         tmp <- dplyr::mutate(tmp, sample = sample + max_n_resamples) 
       }
       
-      rv$meta_tbl_resample <<- dplyr::bind_rows(rv$meta_tbl_resample, tmp)
+      rv$meta_tbl_resample <<- dplyr::bind_rows(
+        rv$meta_tbl_resample, dplyr::distinct(tmp))
       
       # rv$meta_tbl_resample <- NULL
-      # tmp <- get_meta_permutation_outputs()
+      # tmp <- get_meta_resampled_outputs()
       # rv$meta_tbl_resample <- dplyr::distinct(tmp)
       
     }) %>% # end of observe,
@@ -1197,7 +1200,7 @@ mod_tab_meta_server <- function(id, rv) {
     
     output$metaPlot_all <- ggiraph::renderGirafe({
       req(rv$which_question, rv$simList, rv$simfitList,
-          rv$truth, !is.null(rv$is_emulate))
+          rv$truth, !is.null(rv$add_ind_var))
       req(length(rv$simList) == length(rv$simfitList))
       req(length(rv$simfitList) > 1)
       
@@ -1230,8 +1233,8 @@ mod_tab_meta_server <- function(id, rv) {
         
         truth_summarized <- get_true_hr(
           sigma = rv$sigma,
-          emulated = rv$is_emulate,
-          fit = if (rv$is_emulate) rv$meanfitList else NULL,
+          ind_var = rv$add_ind_var,
+          fit = if (rv$add_ind_var) rv$meanfitList else NULL,
           grouped = rv$grouped,
           groups = if (rv$grouped) rv$groups[[2]] else NULL,
           summarized = TRUE)
@@ -1256,8 +1259,8 @@ mod_tab_meta_server <- function(id, rv) {
           tau_v = rv$tau_v,
           sigma = rv$sigma,
           
-          emulated = rv$is_emulate,
-          fit = if (rv$is_emulate) rv$meanfitList else NULL,
+          ind_var = rv$add_ind_var,
+          fit = if (rv$add_ind_var) rv$meanfitList else NULL,
           
           grouped = rv$grouped,
           groups = if (rv$grouped) rv$groups[[2]] else NULL,
@@ -1285,15 +1288,15 @@ mod_tab_meta_server <- function(id, rv) {
       
       truth <- out$unit[[1]] %#% truth
       
-      if (rv$is_emulate) {
+      if (rv$add_ind_var) {
         if (set_analysis == "hr") {
           truthList <- get_true_hr(
             data = rv$simList,
             seed = rv$seedList,
             sigma = rv$sigma,
             
-            emulated = rv$is_emulate,
-            fit = if (rv$is_emulate) rv$meanfitList else NULL,
+            ind_var = rv$add_ind_var,
+            fit = if (rv$add_ind_var) rv$meanfitList else NULL,
             grouped = rv$grouped,
             groups = if (rv$grouped) rv$groups[[2]] else NULL)
           
@@ -1307,8 +1310,8 @@ mod_tab_meta_server <- function(id, rv) {
             seed = rv$seedList,
             sigma = rv$sigma,
             
-            emulated = rv$is_emulate,
-            fit = if (rv$is_emulate) rv$meanfitList else NULL,
+            ind_var = rv$add_ind_var,
+            fit = if (rv$add_ind_var) rv$meanfitList else NULL,
             grouped = rv$grouped,
             groups = if (rv$grouped) rv$groups[[2]] else NULL)
           
@@ -1379,7 +1382,7 @@ mod_tab_meta_server <- function(id, rv) {
                             scales = "free_y",
                             space = "free_y") +
         
-        { if (rv$is_emulate)
+        { if (rv$add_ind_var)
           ggplot2::geom_point(
             data = out_truth,
             mapping = ggplot2::aes(
@@ -1390,9 +1393,9 @@ mod_tab_meta_server <- function(id, rv) {
             size = 3,
             shape = 4) } +
         
-        { if (rv$is_emulate)
-        ggplot2::scale_fill_manual(
-          "Truth:", values = c("True area" = "black")) } +
+        { if (rv$add_ind_var)
+          ggplot2::scale_fill_manual(
+            "Truth:", values = c("True area" = "black")) } +
         
         ggplot2::scale_color_manual("Group:", values = x_color) +
         ggplot2::scale_shape_manual("Group:", values = x_shape) +
@@ -1454,8 +1457,8 @@ mod_tab_meta_server <- function(id, rv) {
         
         truth_summarized <- get_true_hr(
           sigma = rv$sigma,
-          emulated = rv$is_emulate,
-          fit = if (rv$is_emulate) rv$meanfitList else NULL,
+          ind_var = rv$add_ind_var,
+          fit = if (rv$add_ind_var) rv$meanfitList else NULL,
           grouped = rv$grouped,
           groups = rv$groups[[2]],
           summarized = TRUE)
@@ -1479,8 +1482,8 @@ mod_tab_meta_server <- function(id, rv) {
           tau_v = rv$tau_v,
           sigma = rv$sigma,
           
-          emulated = rv$is_emulate,
-          fit = if (rv$is_emulate) rv$meanfitList else NULL,
+          ind_var = rv$add_ind_var,
+          fit = if (rv$add_ind_var) rv$meanfitList else NULL,
           
           grouped = rv$grouped,
           groups = rv$groups[[2]],
@@ -2291,37 +2294,44 @@ mod_tab_meta_server <- function(id, rv) {
     # HELP MODALS ---------------------------------------------------------
     ## Help modal (resample): ---------------------------------------------
     
-    # observe({
-    #   
-    #   shiny::showModal(
-    #     shiny::modalDialog(
-    #       title = h4(span("Resampling", class = "cl-sea"),
-    #                  "individuals:"),
-    #       
-    #       fluidRow(
-    #         style = paste("margin-right: 20px;",
-    #                       "margin-left: 20px;"),
-    #         
-    #         # h4(style = "margin-top: 30px;", "For more information:"),
-    #         # 
-    #         # p(style = "font-family: var(--monosans);",
-    #         #   "- Noonan, M. J., Fleming, C. H., Akre, T. S.,",
-    #         #   "Drescher-Lehman, J., Gurarie, E., Harrison, A. L.,",
-    #         #   "Kays, R. & Calabrese, J. M. (2019). Scale-insensitive",
-    #         #   "estimation of speed and distance traveled from animal",
-    #         #   "tracking data. Movement Ecology, 7(1), 1-15.")
-    #         
-    #         p("TBA")
-    #         
-    #       ), # end of fluidRow
-    #       
-    #       footer = modalButton("Dismiss"),
-    #       size = "m")) # end of modal
-    #   
-    # }) %>% # end of observe,
-    #   bindEvent(input$metaHelp_resample)
+    observe({
+
+      shiny::showModal(
+        shiny::modalDialog(
+          title = h4(span("Resampling", class = "cl-sea"),
+                     "individuals:"),
+
+          fluidRow(
+            style = paste("margin-right: 20px;",
+                          "margin-left: 20px;"),
+            
+            p("To evaluate how individual estimates contribute to",
+            "variation in the population-level mean, we repeatedly",
+            "reassign individuals into new groups and re-estimate",
+            "the mean across these resampled sets.",
+            br(),
+            "This approach reveals the spread of estimates and helps",
+            "assess the robustness of the observed mean at lower",
+            "population sample sizes."),
+
+            h4(style = "margin-top: 30px;", "For more information:"),
+            p(style = "font-family: var(--monosans);",
+              "Silva, I., Fleming, C. H., Noonan, M. J.,",
+              "Fagan, W. F. & Calabrese, J. M. (2025). Too few, too",
+              "many, or just right? Optimizing sample sizes for",
+              "population-level inferences in animal tracking",
+              "projects (in prep).")
+
+          ), # end of fluidRow
+
+          footer = modalButton("Dismiss"),
+          size = "m")) # end of modal
+
+    }) %>% # end of observe,
+      bindEvent(input$metaHelp_resample)
     
   }) # end of moduleServer
+  
 }
     
 ## To be copied in the UI

@@ -43,7 +43,7 @@
   
   num_groups <- ifelse(is_grouped, length(x), 1)
   num_out <- ifelse(is_grouped, length(x) + 1, 1)
-
+  
   if (is_grouped) {
     
     x[[1]][sapply(x[[1]], is.null)] <- NULL
@@ -61,9 +61,9 @@
       suppressMessages() %>% 
       suppressWarnings() %>% 
       quiet()
-  # }, warning = function(w) {
-  #   message("A warning occurred:", conditionMessage(w), "\n")
-  #   return(NULL)
+    # }, warning = function(w) {
+    #   message("A warning occurred:", conditionMessage(w), "\n")
+    #   return(NULL)
   }, error = function(e) {
     message(paste(
       "Population-level mean", variable, "could not be extracted."))
@@ -202,8 +202,8 @@
       out <- get_true_hr(
         data = if (!summarized) rv$simList else NULL,
         sigma = rv$sigma,
-        emulated = rv$is_emulate,
-        fit = if (rv$is_emulate) rv$meanfitList else NULL,
+        ind_var = rv$add_ind_var,
+        fit = if (rv$add_ind_var) rv$meanfitList else NULL,
         grouped = rv$grouped,
         groups = if (rv$grouped) rv$groups[[2]] else NULL,
         summarized = summarized) 
@@ -216,8 +216,8 @@
         tau_p = rv$tau_p,
         tau_v = rv$tau_v,
         sigma = rv$sigma,
-        emulated = rv$is_emulate,
-        fit = if (rv$is_emulate) rv$meanfitList else NULL,
+        ind_var = rv$add_ind_var,
+        fit = if (rv$add_ind_var) rv$meanfitList else NULL,
         grouped = rv$grouped,
         groups = if (rv$grouped) rv$groups[[2]] else NULL,
         summarized = summarized)
@@ -239,23 +239,34 @@
 #' @keywords internal
 #'
 #' @noRd
-.get_sequence <- function(input, .iter_step = 2, grouped = FALSE) {
+.get_sequence <- function(input,
+                          .step = 2, 
+                          .max_m = NULL,
+                          .automate_seq = TRUE,
+                          grouped = FALSE) {
   
   if (is.null(input)) stop("No input!")
   
   n <- length(input)
+  if (!is.null(.max_m)) {
+    if (.max_m > n) stop("'.max_m' argument is invalid.")
+    n <- .max_m
+  }
+  
   if (grouped) n <- n / 2
   
   if (n == 1) return(stop("Cannot run meta() on one individual."))
   
-  if (.iter_step == 2) {
+  if (.step == 2) {
     start_value <- ifelse(n %% 2 == 0, 2, 1)
   } else {
-    start_value <- n %% .iter_step
-    if (start_value == 0) start_value <- .iter_step
+    start_value <- n %% .step
+    if (start_value == 0) start_value <- .step
   }
   
-  out_seq <- seq(start_value, n, by = .iter_step)
+  if (!.automate_seq) return(seq(start_value, n, by = .step))
+  
+  out_seq <- seq(start_value, n, by = .step)
   if (grouped && 1 %in% out_seq) {
     out_seq <- out_seq[out_seq != 1]
   }
@@ -279,7 +290,9 @@
 #'
 #' @noRd
 #'
-.get_sets <- function(input, groups = NULL, set_size = 2) {
+.get_sets <- function(input,
+                      groups = NULL, 
+                      set_size = 2) {
   
   group_labels <- NULL
   if (!is.null(groups)) {
@@ -403,4 +416,284 @@
   
   return(list(true_estimate = true_estimate,
               true_ratio = true_ratio))
+}
+
+
+#' @title Plot meta (resamples)
+#'
+#' @noRd 
+#' 
+plot_meta_resamples <- function(rv,
+                                set_target = c("hr", "ctsd"),
+                                random = FALSE, 
+                                subpop = FALSE, 
+                                colors = NULL) {
+  
+  stopifnot(!is.null(rv$meta_tbl),
+            !is.null(rv$which_m),
+            !is.null(rv$which_meta),
+            !is.null(rv$which_question),
+            !is.null(set_target))
+  if (length(rv$simList) <= 1)
+    stop("simList must have more than one element.")
+  if (random) {
+    stopifnot(!is.null(rv$meta_tbl_resample),
+              !is.null(rv$error_threshold))
+  }
+  if (rv$which_meta == "compare") {
+    stopifnot(!is.null(rv$metaList_groups),
+              !is.null(rv$metaList[[set_target]]))
+  }
+  
+  dodge_width <- 0.25
+  txt_title <- if (length(rv$which_question) > 1) {
+    ifelse(set_target == "hr", 
+           "For home range:", "For speed & distance:")
+  }
+  
+  if (is.null(colors)) { pal_values <- c(
+    "Yes" = "#009da0", "No" = "#dd4b39")
+  } else pal_values <- c(
+    "Yes" = colors[[1]], "No" = colors[[2]])
+  
+  if (random) {
+    
+    if (!is.null(rv$meta_nresample))
+      out <- dplyr::filter(rv$meta_tbl_resample,
+                           .data$sample <= rv$meta_nresample)
+    else out <- rv$meta_tbl_resample
+    
+    out <- out %>% 
+      dplyr::mutate(m = as.integer(.data$m)) %>% 
+      dplyr::filter(.data$type == set_target)
+    if (subpop) out <- dplyr::filter(out, .data$group != "All")
+    
+    req(nrow(out) > 0)
+    stopifnot(all(!is.na(out$est)), nrow(out) > 0)
+    
+    max_draws <- max(unique(out$sample))
+    
+    out_mean <- out %>% 
+      dplyr::group_by(.data$type, .data$group, .data$m) %>% 
+      dplyr::summarize(
+        n = dplyr::n(),
+        error = mean(.data$error, na.rm = TRUE),
+        error_lci = mean(.data$error_lci, na.rm = TRUE),
+        error_uci = mean(.data$error_uci, na.rm = TRUE)) %>%
+      dplyr::rowwise() %>%
+      dplyr::mutate(
+        within_threshold = 
+          (.data$error >= -rv$error_threshold &
+             .data$error <= rv$error_threshold),
+        overlaps_with_threshold = 
+          (.data$error_lci <= rv$error_threshold & 
+             .data$error_uci >= -rv$error_threshold),
+        status = dplyr::case_when(
+          within_threshold ~ "Yes",
+          # !within_threshold & overlaps_with_threshold ~ "Near",
+          TRUE ~ "No")) %>% 
+      quiet() %>% 
+      suppressMessages() %>% 
+      suppressWarnings()
+    
+    txt_color <- paste0(
+      "Within error threshold (\u00B1",
+      rv$error_threshold * 100, "%)?")
+    
+    plot_subtitle <- paste(
+      "<b>Maximum number of samples:</b>", max_draws)
+    
+    p.optimal <- out_mean %>% 
+      ggplot2::ggplot(
+        ggplot2::aes(x = as.factor(.data$m),
+                     y = .data$error,
+                     group = .data$group,
+                     shape = .data$group,
+                     color = .data$status)) + 
+      
+      ggplot2::geom_hline(
+        yintercept = 0,
+        linewidth = 0.3,
+        linetype = "solid") +
+      
+      ggplot2::geom_hline(
+        yintercept = rv$error_threshold,
+        color = "black",
+        linetype = "dotted") +
+      ggplot2::geom_hline(
+        yintercept = -rv$error_threshold,
+        color = "black",
+        linetype = "dotted") +
+      
+      ggplot2::geom_jitter(
+        data = out,
+        mapping = ggplot2::aes(x = as.factor(.data$m),
+                               y = .data$error,
+                               group = .data$group,
+                               shape = .data$group,
+                               color = .data$status),
+        position = ggplot2::position_jitterdodge(dodge.width = 0.4),
+        size = 3.5, color = "grey80", alpha = 0.9) +
+      
+      ggplot2::geom_linerange(
+        ggplot2::aes(ymin = .data$error_lci,
+                     ymax = .data$error_uci),
+        show.legend = TRUE,
+        position = ggplot2::position_dodge(width = 0.4),
+        linewidth = 2.2, alpha = 0.3) +
+      ggplot2::geom_point(
+        position = ggplot2::position_dodge(width = 0.4),
+        show.legend = TRUE,
+        size = 3.5) +
+      
+      ggplot2::labs(
+        title = txt_title,
+        subtitle = plot_subtitle,
+        x = "<i>Population</i> sample size, <i>m</i>",
+        y = "Relative error (%)",
+        color = txt_color) +
+      
+      ggplot2::scale_y_continuous(breaks = scales::breaks_pretty(),
+                                  labels = scales::percent) +
+      
+      ggplot2::scale_color_manual(values = pal_values,
+                                  na.translate = FALSE, drop = FALSE) +
+      ggplot2::scale_shape_manual("Groups:", values = c(16, 18)) +
+      
+      ggplot2::theme_minimal() +
+      ggplot2::theme(
+        legend.position = "bottom",
+        plot.title = ggtext::element_markdown(
+          size = 15, face = 2, hjust = 1,
+          margin = ggplot2::margin(b = 2)),
+        plot.subtitle = ggtext::element_markdown(
+          size = 14, hjust = 1, margin = ggplot2::margin(b = 15)))
+    p.optimal
+    
+    if (rv$which_meta == "mean") {
+      p.optimal <- p.optimal +
+        ggplot2::guides(shape = "none")
+    }
+    
+  } else {
+    
+    out <- out_all <- dplyr::distinct(rv$meta_tbl) %>% 
+      dplyr::select(-c(.data$est, .data$lci, .data$uci)) %>%
+      dplyr::filter(.data$type == set_target)
+    
+    stopifnot(all(!is.na(out$est)), nrow(out) > 0)
+    
+    if (subpop) subpop_detected <- NULL
+    if (subpop) out <- dplyr::filter(out, .data$group != "All")
+    
+    stopifnot(all(!is.na(out$est)), nrow(out) > 0)
+    
+    txt_color <- paste0(
+      "Within error threshold (\u00B1",
+      rv$error_threshold * 100, "%)?")
+    
+    out <- out %>%
+      dplyr::group_by(.data$type) %>% 
+      dplyr::rowwise() %>%
+      dplyr::mutate(
+        within_threshold = 
+          (.data$error >= -rv$error_threshold & 
+             .data$error <= rv$error_threshold),
+        overlaps_with_threshold = 
+          (.data$error_lci <= rv$error_threshold & 
+             .data$error_uci >= -rv$error_threshold),
+        color = dplyr::case_when(
+          within_threshold ~ "Yes",
+          # !within_threshold & overlaps_with_threshold ~ "Near",
+          TRUE ~ "No"))
+    
+    txt_caption <- NULL
+    txt_color <- paste0(
+      "Within error threshold (\u00B1", rv$error_threshold * 100, "%)?")
+    
+    if (rv$which_meta == "compare") {
+      dodge_width <- .4
+      txt_color <- "Groups:"
+      
+      is_subpop <- rv$metaList_groups[["intro"]][[
+        set_target]]$logs$subpop_detected
+      
+      is_final_subpop <- out_all %>%
+        dplyr::filter(.data$group == "All") %>%
+        dplyr::pull(.data$subpop_detected)
+      is_final_subpop <- rep(is_final_subpop, each = 2)
+      is_final_subpop <- out$is_final_subpop <- ifelse(
+        is_final_subpop == "FALSE", "No", "Yes")
+      out$color <- out$group
+      
+      pal_values <- c("A" = "#77b131", "B" = "#009da0")
+      
+      txt_color <- "Groups:"
+      txt_caption <- "(*) Asterisks indicate subpopulations were found."
+      
+    } # Note: refers to finding subpops within the population.
+    
+    p.optimal <- out %>%
+      ggplot2::ggplot(
+        ggplot2::aes(x = as.factor(.data$m),
+                     y = .data$error,
+                     group = .data$group,
+                     shape = .data$group,
+                     color = .data$color)) +
+      
+      ggplot2::geom_hline(
+        yintercept = rv$error_threshold,
+        color = "black",
+        linetype = "dotted") +
+      ggplot2::geom_hline(
+        yintercept = -rv$error_threshold,
+        color = "black",
+        linetype = "dotted") +
+      
+      ggplot2::geom_hline(
+        yintercept = 0,
+        linewidth = 0.3,
+        linetype = "solid") +
+      ggplot2::geom_point(
+        size = 4,
+        position = ggplot2::position_dodge(width = dodge_width)) +
+      ggplot2::geom_linerange(
+        ggplot2::aes(ymin = .data$error_lci,
+                     ymax = .data$error_uci),
+        position = ggplot2::position_dodge(width = dodge_width)) +
+      
+      { if (rv$which_meta == "compare")
+        ggplot2::geom_text(
+          data = subset(out, subpop_detected == TRUE),
+          mapping = ggplot2::aes(x = as.factor(.data$m),
+                                 y = .data$error_uci + 0.05,
+                                 label = "*"),
+          color = "black", size = 5, 
+          position = ggplot2::position_dodge(width = 0.4))
+        
+      } +
+      
+      ggplot2::labs(
+        title = txt_title,
+        x = "<i>Population</i> sample size, <i>m</i>",
+        y = "Relative error (%)",
+        color = txt_color,
+        caption = txt_caption) +
+      
+      ggplot2::scale_y_continuous(labels = scales::percent,
+                                  breaks = scales::breaks_pretty()) +
+      ggplot2::scale_color_manual(txt_color, values = pal_values) +
+      ggplot2::scale_shape_manual("Groups:", values = c(16, 18)) +
+      ggplot2::theme_minimal() +
+      ggplot2::theme(legend.position = "bottom")
+    
+    if (rv$which_meta == "mean") {
+      p.optimal <- p.optimal +
+        ggplot2::guides(shape = "none")
+    }
+    
+  } # end of (!random)
+  
+  return(p.optimal)
+  
 }
